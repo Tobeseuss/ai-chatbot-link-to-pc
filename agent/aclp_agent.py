@@ -8,9 +8,15 @@ Cross-platform agent (Windows / Linux) that connects the user's PC to the
 AI chatbots: shell commands, file operations, software installation,
 browser control, file transfers and more.
 
-Version : 1.3.1
+Version : 1.4.0
 License : GPL-2.0-or-later
 Repo    : https://github.com/Tobeseuss/ai-chatbot-link-to-pc
+
+Highlights in 1.4.0:
+- Version aligned with plugin v1.4.0: the plugin's AI onboarding text (principle 4,
+  GET /agent-prompt) was rewritten as a neutral, professional API-integration guide
+  ("job-processing service": POST a JSON job -> read the result in the response or
+  poll the result endpoint every 3-5 seconds). No agent-side behavior change.
 
 Highlights in 1.3.1:
 - SITE URL AUTO-FIX: pasting the full REST endpoint (e.g. the
@@ -63,7 +69,7 @@ import urllib.request
 import uuid
 import webbrowser
 
-__VERSION__ = "1.3.1"
+__VERSION__ = "1.4.0"
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aclp_agent.log")

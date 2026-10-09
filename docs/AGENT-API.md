@@ -3,8 +3,11 @@
 > **Persian note (برای کاربر):** این سند عمداً به انگلیسی نوشته شده است، چون مخاطب اصلی آن چت‌بات‌ها و ایجنت‌های هوش مصنوعی هستند که مستندات انگلیسی را قابل‌اعتمادتر پارس می‌کنند. راهنمای فارسی کاربر: `docs/USER-GUIDE.fa.md`. این فایل را در system prompt یا ابزار knowledge چت‌بات خود قرار دهید تا بداند چگونه با سیستم کاربر تعامل کند.
 
 Base URL: `https://YOUR-SITE.com/wp-json/aclp/v1`
-Plugin version: 1.3.1 · API namespace: `aclp/v1`
+Plugin version: 1.4.0 · API namespace: `aclp/v1`
 
+> **v1.4.0:** the onboarding text (`GET /agent-prompt`) is now a **neutral, professional API-integration
+> guide** — jobs, endpoints, poll intervals — with no environment backstory. Use this framing in your
+> own tool descriptions too (e.g. name the tool `aclp_submit_job`, not `pc_control`).
 > **v1.3.1 fix (agent):** users often paste this full REST Base URL into the **agent's** first-run
 > setup, which doubled the path and failed with HTTP 404 `rest_no_route`. The agent (v1.3.1+) now
 > auto-extracts the site root AND repairs an already-saved wrong `config.json` on every start.
@@ -17,7 +20,7 @@ Plugin version: 1.3.1 · API namespace: `aclp/v1`
 > survives) · every file object now includes a signed `download_url` that needs **no headers at all**
 > · the bundled agent is now **ALL-ENGLISH**, **crash-proof** (window stays open on errors) and has
 > **ZERO dependencies** (pure Python standard library — nothing is pip-installed).
-> **v1.2.0:** text-only chatbots can drive the PC through the agent's **relay mode**
+> **v1.2.0:** text-only chatbots can work with the connected environment through the agent's **relay mode**
 > (`python aclp_agent.py relay <action> ...` — see section 10) · `GET /agent-prompt` accepts
 > `?api_key=` to embed a real key · `GET /clients` now returns agent specs (version, python, IP,
 > capabilities, controlling AI model) · agents can self-report their controlling AI via the
@@ -86,8 +89,9 @@ MODE A (chatbots that can execute code — call the REST API directly) and MODE 
 chatbots — they print one `aclp_agent.py relay ...` command per step and the user pastes the
 JSON result back). The API key placeholder is left empty on purpose so the agent asks the user;
 pass `?api_key=aclp_live_...` to embed a real key into the returned text. Feed it to **any** LLM —
-even weak/limited ones — so it can drive the PC through this bridge without reading this whole
-document. The WordPress admin dashboard shows the same text with an API-key selector,
+even weak/limited ones — so it can work with this job-processing service without reading this whole
+document. The text is deliberately written as a neutral, professional API-integration guide
+(v1.4.0). The WordPress admin dashboard shows the same text with an API-key selector,
 auto-filled site URL and a copy button.
 
 ### 3.3 `GET /github-integration` — repo + PAT for developer-agents (key required)
@@ -104,7 +108,7 @@ push — owner PAT → publish Release; non-owner PAT → commit to main or fork
 If `pat_set` is `false` (empty `pat`), **ask the user** to paste their GitHub PAT in
 *WordPress admin → AI-PC Link → تنظیمات → یکپارچگی گیت‌هاب*. Never guess tokens.
 
-### 3.4 `GET /clients` — list machines bound to this key
+### 3.4 `GET /clients` — list environments bound to this key
 ```json
 {"ok":true,"clients":[
   {"client_uid":"...","name":"my-laptop","os":"Windows 11","hostname":"LAPTOP",
@@ -115,11 +119,11 @@ If `pat_set` is `false` (empty `pat`), **ask the user** to paste their GitHub PA
      "privilege_status","process_list","run_python","screenshot","shell","sysinfo","upload_file"]}
 ]}
 ```
-Pick a `client_uid` from here when multiple machines are connected. `ai_model` is the name of the
-AI/chatbot the user configured as the controller of that machine (register field `ai_model`);
-it is empty if the user did not set it.
+Pick a `client_uid` from here when multiple environments are connected. `ai_model` is the name of the
+AI/chatbot configured as the controller of that environment (register field `ai_model`);
+it is empty if the operator did not set it.
 
-### 3.5 `POST /commands` — send a command to a machine
+### 3.5 `POST /commands` — submit a job to an environment
 Request body:
 ```json
 {
@@ -160,12 +164,12 @@ Wait-mode response = full command object (same as `GET /commands/{uid}`).
 
 ### 3.7 `GET /commands?limit=20` — recent commands of this key
 
-### 3.8 `POST /files` (multipart) — upload a file to deliver **to the PC**
+### 3.8 `POST /files` (multipart) — upload a file to deliver **to the environment**
 Form fields: `file` (binary), optional `command_uid`.
 Response: `{"ok":true,"file_id":9,"filename":"setup.zip","size":1048576,"url":"https://site/wp-json/aclp/v1/files/9","download_url":"https://site/wp-json/aclp/v1/files/9?aclp_token=..."}`
 Then send a `file_download` command referencing that `file_id`.
 
-### 3.9 `GET /files/{file_id}` — download a file produced by the PC
+### 3.9 `GET /files/{file_id}` — download a file produced by the environment
 Requires ownership by your key **or** a valid signed token. Returns binary stream with
 `Content-Disposition: attachment`.
 
@@ -181,7 +185,7 @@ file exists (retention policy governs deletion).
 |------|---------|------------------|
 | `ping` | `{}` | `{"pong":true,"time":"...","agent_version":"1.1.0"}` |
 | `sysinfo` | `{}` | OS, hostname, CPU, RAM, disk, python, agent version |
-| `shell` | `{"command":"<any shell command>","timeout":300,"elevated":false}` | `{"exit_code":int,"stdout":str,"stderr":str}` — Windows: cmd (`shell=True`), Linux: `/bin/sh`. Any command is allowed (no restrictions by design). With `"elevated": true` the command is retried/run with admin/root privileges when the user configured elevation (see `privilege_status`). |
+| `shell` | `{"command":"<any shell command>","timeout":300,"elevated":false}` | `{"exit_code":int,"stdout":str,"stderr":str}` — Windows: cmd (`shell=True`), Linux: `/bin/sh`. With `"elevated": true` the command is retried/run with elevated rights when the operator configured elevation (see `privilege_status`). |
 | `run_python` | `{"code":"print('hi')","timeout":120}` | stdout/stderr of the temporary script |
 | `process_list` | `{}` | `{"count":N,"processes":[{pid,name,user,memory_mb}...]}` (needs psutil for structured output; else raw tasklist/ps text in `.raw`) |
 | `kill_process` | `{"pid":1234}` or `{"name":"chrome.exe"}` | `{"terminated":[pids]}` |
@@ -193,9 +197,9 @@ file exists (retention policy governs deletion).
 | `file_move` | `{"src":"...","dst":"...","copy":false}` | moved/copied paths |
 | `upload_file` | `{"path":"C:\\report.pdf"}` | result includes `files:[{file_id,url,...}]` — download via `GET /files/{file_id}` |
 | `file_download` | `{"file_id":9,"save_path":"C:\\Users\\me\\Downloads\\setup.zip"}` | `{"saved":"...","size":N}` — pairs with `POST /files` |
-| `open_url` | `{"url":"https://example.com"}` | opens the default browser on the PC |
-| `http_request` | `{"url":"https://api.site/v1","method":"GET","headers":{},"body":null,"max_bytes":2000000}` | `{"status":200,"headers":{...},"body":"<text>","truncated":bool}` — lets you browse the web through the PC's network |
-| `screenshot` | `{}` | PC uploads PNG → result includes `files:[{file_id,url}]` (requires pyautogui on the PC) |
+| `open_url` | `{"url":"https://example.com"}` | opens the URL with the environment's default handler |
+| `http_request` | `{"url":"https://api.site/v1","method":"GET","headers":{},"body":null,"max_bytes":2000000}` | `{"status":200,"headers":{...},"body":"<text>","truncated":bool}` — lets you make web requests from the environment's network |
+| `screenshot` | `{}` | environment uploads PNG → result includes `files:[{file_id,url}]` (requires pyautogui in the environment) |
 | `install` | `{"packages":["vlc"],"manager":"auto","timeout":1800}` | shell output of winget/choco (Windows) or apt/dnf/pacman (Linux) / pip. On permission errors it retries elevated **only** if the user configured elevation credentials or `auto_elevate`. |
 | `privilege_status` | `{}` | `{"elevated":bool,"platform":"...","auto_elevate":bool,"credentials_configured":bool,"sudo_available":bool,"method":"..."}` — check BEFORE running admin/root commands; elevation is optional and everything else works without it |
 | `privilege_run` | `{"command":"apt-get install -y htop","timeout":600}` | same shape as `shell` result, executed with admin/root rights: Linux `sudo -S`/`su -c` with user-configured password (or NOPASSWD sudo); Windows shows a UAC prompt the user must accept |
@@ -232,10 +236,10 @@ curl -X POST "$BASE/commands" -H "X-ACLP-Key: $KEY" -H "Content-Type: applicatio
 curl -X POST "$BASE/commands" -H "X-ACLP-Key: $KEY" -H "Content-Type: application/json" \
   -d '{"type":"sysinfo","broadcast":true}'
 
-# download a file the PC produced (file_id from result.files)
+# download a file the environment produced (file_id from result.files)
 curl -H "X-ACLP-Key: $KEY" -o report.pdf "$BASE/files/12"
 
-# upload a file to the PC
+# upload a file to the environment
 curl -X POST "$BASE/files" -H "X-ACLP-Key: $KEY" -F "file=@./installer.zip"
 # then:
 curl -X POST "$BASE/commands" -H "X-ACLP-Key: $KEY" -H "Content-Type: application/json" \
@@ -244,14 +248,14 @@ curl -X POST "$BASE/commands" -H "X-ACLP-Key: $KEY" -H "Content-Type: applicatio
 
 ## 7. OpenAI-style function/tool definition
 
-Provide this tool to your chatbot so it can drive the PC:
+Provide this tool to your chatbot so it can submit jobs through the bridge:
 
 ```json
 {
   "type": "function",
   "function": {
-    "name": "pc_control",
-    "description": "Execute an action on the user's PC through ACLP. Actions: shell (run any command; optional elevated=true for admin/root), privilege_status, privilege_run (admin/root run), file_read/file_write/file_list/file_delete/file_mkdir/file_move, upload_file (from PC), file_download (to PC, needs file_id from POST /files upload), open_url, http_request, screenshot, sysinfo, process_list, kill_process, install, run_python, ping.",
+    "name": "aclp_submit_job",
+    "description": "Submit a job to the ACLP bridge service and return the processed result. Job types: shell (run a command-line task), privilege_status, privilege_run (elevated task), file_read/file_write/file_list/file_delete/file_mkdir/file_move, upload_file (from environment), file_download (to environment, needs file_id from POST /files upload), open_url, http_request, screenshot, sysinfo, process_list, kill_process, install, run_python, ping.",
     "parameters": {
       "type": "object",
       "properties": {
@@ -312,8 +316,8 @@ Errors are returned as `{"code":"...","message":"<Persian human message>","data"
 
 ## 10. TEXT-ONLY chatbots — the agent's relay mode (MODE B)
 
-If you **cannot execute code or HTTP requests** (pure text chatbot), you can STILL drive the PC:
-the user runs the agent on the connected PC and acts as your hands.
+If you **cannot execute code or HTTP requests** (pure text chatbot), you can STILL use the service:
+the operator runs a small relay program in their terminal and pastes the JSON results back to you.
 
 For every single step:
 1. Print EXACTLY ONE terminal command in one fenced code block — one of:

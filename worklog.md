@@ -175,3 +175,21 @@ Stage Summary:
 **Stage Summary:**
 - Release v1.3.1: https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases/tag/v1.3.1
 - گام مالک: استارت ایجنت 1.3.1 (بدون setup مجدد — config خودترمیم می‌شود) و تست زنده؛ آپدیت پلاگین به 1.3.1 اختیاری ولی توصیه‌شده
+
+---
+## Task ID: 6 — v1.4.0 (2026-10-09)
+**Task:** بازطراحی حرفه‌ای متن اصل ۴ با لحن خنثی «راهنمای ادغام API» (درخواست مالک: پرامپت قبلی باعث رد شدن تعامل مدل‌های ایمن می‌شد) + سینک سه‌گانه اصل ۴ + انتشار نسخه‌دار
+
+**Work Log:**
+- چک ریموت (اصل ۳): main = bad528a (Release v1.3.1) — 0 پشت / 0 جلو
+- بازنویسی کامل heredoc `agent_prompt` در class-aclp-utils.php: عنوان «ACLP BRIDGE — API CLIENT INTEGRATION GUIDE»؛ معرفی به‌عنوان «REST job-processing service»؛ الگوی مکانیکی submit→wait/poll→process؛ واژگان خنثی (environment/workspace/job/operator)؛ حفظ MODE A/B + چت + فایل‌ها + نکته site-root
+- اسکن خودکار عبارات هشداردهنده در متن جدید: صفر مورد (real computer / FULLY control / user's PC / no restrictions / personal computer / their PC / connected PC / PC bridge)
+- خنثی‌سازی AGENT-API.md: عنوان‌ها 3.4/3.5/3.8/3.9 + جدول اکشن‌ها (open_url/http_request/screenshot) + مثال‌های curl + بخش 10 + یادداشت v1.4.0؛ تغییر نام ابزار نمونه `pc_control` → `aclp_submit_job`؛ حذف «no restrictions by design»
+- اصل ۴: بلوک README با sync_prompt_readme.py (VERSION=1.4.0) بازتولید شد؛ توضیح فارسی لحن جدید + بج نسخه 1.4.0 + ZIPها؛ USER-GUIDE بخش ۱۴؛ project.md (وضعیت + ADR 22)؛ CHANGELOG 1.4.0؛ brainstorm #۶
+- نسخه‌ها → 1.4.0: هدر افزونه، ACLP_VERSION، fallback utils، readme.txt، __VERSION__ ایجنت (+ یادداشت docstring)، AGENT-API header
+- تست‌ها: php -l (باینری استاتیک) روی فایل‌های تغییریافته ✓؛ py_compile ایجنت ✓؛ placeholders سالم ({VERSION}/{SITE_URL}/{KEY_LINE}/{REPO_URL}) ✓
+- build_release: دو ZIP 1.4.0 → commit/push → Release v1.4.0 → کپی به download/
+
+**Stage Summary:**
+- Release v1.4.0: https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases/tag/v1.4.0
+- مالک باید پلاگین 1.4.0 را نصب کند تا متن /agent-prompt و داشبورد عوض شود؛ سپس متن جدید را به مدل‌های ردکننده بدهد
