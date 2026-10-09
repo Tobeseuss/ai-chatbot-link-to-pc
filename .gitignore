@@ -1,0 +1,16 @@
+# Runtime / environment
+agent/config.json
+agent/.installed
+agent/aclp_agent.log
+agent/aclp_agent.pid
+__pycache__/
+*.pyc
+.DS_Store
+node_modules/
+
+# Build artifacts (attached to GitHub Releases instead)
+dist/
+
+# Local IDE
+.vscode/
+.idea/
