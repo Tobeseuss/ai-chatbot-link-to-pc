@@ -8,9 +8,18 @@ Cross-platform agent (Windows / Linux) that connects the user's PC to the
 AI chatbots: shell commands, file operations, software installation,
 browser control, file transfers and more.
 
-Version : 1.0.0
+Version : 1.1.0
 License : GPL-2.0-or-later
 Repo    : https://github.com/Tobeseuss/ai-chatbot-link-to-pc
+
+Highlights:
+- Automatic HTTP fallback: if the site's HTTPS has problems (SSL errors, connection
+  failures), the agent transparently retries over HTTP so everything keeps working.
+- Optional privilege elevation: if the running user is not administrator/root, the user
+  may provide sudo/su (Linux) credentials or accept the UAC prompt (Windows) so commands
+  that need elevation can still run. NOTHING requires elevation — every action works
+  normally with regular permissions; elevation is only used when explicitly requested
+  (payload "elevated": true / privilege_run) or when the user enabled auto_elevate.
 
 NOTE: console messages are in English on purpose so they render correctly on
 Windows terminals with legacy codepages. Full Persian documentation lives in
@@ -18,8 +27,10 @@ the repository docs/ directory.
 """
 
 import base64
+import getpass
 import json
 import os
+import shlex
 import shutil
 import socket
 import subprocess
@@ -30,7 +41,7 @@ import traceback
 import uuid
 import webbrowser
 
-__VERSION__ = "1.0.0"
+__VERSION__ = "1.1.0"
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aclp_agent.log")
@@ -92,6 +103,10 @@ def load_config() -> dict:
     cfg.setdefault("poll_interval", 5)
     cfg.setdefault("command_timeout", 300)
     cfg.setdefault("server_command_timeout", 300)
+    cfg.setdefault("allow_http_fallback", True)   # HTTPS خراب بود -> خودکار روی HTTP ادامه بده
+    cfg.setdefault("auto_elevate", False)         # تلاش خودکار برای دسترسی مدیر فقط با اجازه کاربر
+    cfg.setdefault("elevation_user", "")          # اختیاری: کاربر دارای دسترسی sudo/runas
+    cfg.setdefault("elevation_password", "")      # اختیاری: رمز همان کاربر (در فایل کانفیگ محلی می‌ماند)
     return cfg
 
 
@@ -137,6 +152,27 @@ def setup_wizard() -> dict:
     }
     save_config(cfg)
     print(f"[ok] Config saved to {CONFIG_FILE}")
+
+    # ------------------------------------------------------------------
+    # Optional privilege elevation (اختیاری — اجباری نیست)
+    # ------------------------------------------------------------------
+    print("\n--- Admin/root elevation (optional) | دسترسی مدیر (اختیاری) ---")
+    print("Everything works without this. Configure it only if you want the AI to be able")
+    print("to run administrator/root commands when needed. برای کارکرد عادی نیازی به این بخش نیست.")
+    if input("Configure elevation now? [y/N]: ").strip().lower() in ("y", "yes"):
+        default_user = os.environ.get("USERNAME") or os.environ.get("USER", "")
+        e_user = input(f"Elevation user (کاربر دارای sudo/runas) [{default_user}]: ").strip() or default_user
+        e_pass = getpass.getpass("Elevation password (رمز — hidden, Enter to skip): ")
+        auto = input("Auto-retry failed commands with elevation on permission errors? [y/N]: ").strip().lower() in ("y", "yes")
+        cfg["elevation_user"] = e_user
+        if e_pass:
+            cfg["elevation_password"] = e_pass
+        cfg["auto_elevate"] = auto
+        save_config(cfg)
+        print("[ok] Elevation settings saved (config.json is protected with 0600 on Linux).")
+    else:
+        print("[ok] Skipped. You can add elevation_user/elevation_password/auto_elevate to config.json anytime.")
+
     print("[ok] Starting agent now... (Ctrl+C to stop)")
     return cfg
 
@@ -173,6 +209,49 @@ def _run_shell(command: str, timeout: float) -> dict:
         }
     except subprocess.TimeoutExpired:
         raise ACLPError(f"Command timed out after {int(timeout)} seconds")
+
+
+# ---------------------------------------------------------------------------
+# Privilege elevation (اختیاری) — Linux sudo/su + Windows UAC (runas)
+# Nothing in the agent REQUIRES elevation; these helpers are used only when
+# explicitly requested ("elevated": true / privilege_run) or when the user
+# enabled auto_elevate in config.json.
+# ---------------------------------------------------------------------------
+def is_elevated() -> bool:
+    """True if the current process already runs as root/administrator."""
+    if os.name == "nt":
+        try:
+            import ctypes
+            return bool(ctypes.windll.shell32.IsUserAnAdmin())
+        except Exception:
+            return False
+    return hasattr(os, "geteuid") and os.geteuid() == 0
+
+
+def _shell_result(proc) -> dict:
+    return {
+        "exit_code": proc.returncode,
+        "stdout": (proc.stdout or b"").decode("utf-8", errors="replace")[:MAX_OUTPUT_CHARS],
+        "stderr": (proc.stderr or b"").decode("utf-8", errors="replace")[:MAX_OUTPUT_CHARS],
+    }
+
+
+def _looks_like_permission_error(result: dict) -> bool:
+    """Heuristic: did this failure happen because of missing privileges?"""
+    if not isinstance(result, dict) or result.get("exit_code", 1) == 0:
+        return False
+    text = ((result.get("stdout") or "") + " " + (result.get("stderr") or "")).lower()
+    markers = (
+        "permission denied", "access is denied", "are you root?", "could not open lock file",
+        "operation not permitted", "e: unable to acquire", "requires elevation",
+        "administrator", "access denied", "not in the sudoers file", "no tty present",
+        "epm", "0x8007", "must be root",
+    )
+    return any(m in text for m in markers)
+
+
+def _pw_bytes(password: str):
+    return (password + "\n").encode("utf-8") if password else None
 
 
 @handler("ping")
@@ -228,6 +307,9 @@ def h_shell(agent, payload):
     if not command:
         raise ACLPError("payload.command is required")
     timeout = float(payload.get("timeout") or agent.cfg.get("command_timeout", 300))
+    if payload.get("elevated") and not is_elevated():
+        # درخواست صریح اجرای سطح بالا — فقط وقتی کاربر اعتبارها را پیکربندی کرده باشد ممکن است.
+        return agent.run_privileged(command, timeout), []
     return _run_shell(command, timeout), []
 
 
@@ -478,7 +560,10 @@ def h_screenshot(agent, payload):
 
 @handler("install")
 def h_install(agent, payload):
-    """Install software using the platform package manager or pip."""
+    """Install software using the platform package manager or pip.
+    If a plain attempt fails with a permission error, the agent retries with
+    elevation ONLY when the user configured credentials or enabled auto_elevate;
+    otherwise it falls back to plain `sudo` (works on NOPASSWD setups)."""
     packages = payload.get("packages") or payload.get("package")
     if not packages:
         raise ACLPError("payload.packages is required")
@@ -486,6 +571,7 @@ def h_install(agent, payload):
         packages = [packages]
     manager = (payload.get("manager") or "auto").lower()
     timeout = float(payload.get("timeout") or 1800)
+    elevate_allowed = bool(agent.cfg.get("auto_elevate")) or bool(agent.cfg.get("elevation_password"))
 
     system = platform_system()
     if manager in ("auto", "pip"):
@@ -498,25 +584,90 @@ def h_install(agent, payload):
         if manager in ("auto", "winget"):
             cmd = "winget install --accept-package-agreements --accept-source-agreements " + " ".join(packages)
             result = _run_shell(cmd, timeout)
-            if result.get("exit_code") == 0 or "not found" not in result.get("stderr", "").lower():
+            if result.get("exit_code") == 0:
                 return result, []
+            if elevate_allowed and not is_elevated() and _looks_like_permission_error(result):
+                return agent.run_privileged(cmd, timeout), []
         if manager in ("auto", "choco"):
             cmd = "choco install -y " + " ".join(packages)
-            return _run_shell(cmd, timeout), []
+            result = _run_shell(cmd, timeout)
+            if result.get("exit_code") == 0:
+                return result, []
+            if elevate_allowed and not is_elevated() and _looks_like_permission_error(result):
+                return agent.run_privileged(cmd, timeout), []
+            return result, []
         raise ACLPError("No suitable Windows installer (winget/choco) succeeded")
     else:
         if manager in ("auto", "apt"):
             cmd = "apt-get install -y " + " ".join(packages)
             res = _run_shell(cmd, timeout)
             if res.get("exit_code") != 0:
-                # retry with sudo
-                res = _run_shell("sudo " + cmd, timeout)
+                if elevate_allowed:
+                    try:
+                        res2 = agent.run_privileged(cmd, timeout)
+                        if res2.get("exit_code") == 0:
+                            return res2, []
+                        res = res2
+                    except ACLPError:
+                        pass
+                if res.get("exit_code") != 0:
+                    # آخرین تلاش: sudo ساده (ممکن است NOPASSWD باشد)
+                    res = _run_shell("sudo " + cmd, timeout)
             return res, []
         if manager == "dnf":
-            return _run_shell("dnf install -y " + " ".join(packages), timeout), []
+            cmd = "dnf install -y " + " ".join(packages)
+            res = _run_shell(cmd, timeout)
+            if res.get("exit_code") != 0 and elevate_allowed and _looks_like_permission_error(res):
+                try:
+                    res = agent.run_privileged(cmd, timeout)
+                except ACLPError:
+                    pass
+            return res, []
         if manager == "pacman":
-            return _run_shell("pacman -S --noconfirm " + " ".join(packages), timeout), []
+            cmd = "pacman -S --noconfirm " + " ".join(packages)
+            res = _run_shell(cmd, timeout)
+            if res.get("exit_code") != 0 and elevate_allowed and _looks_like_permission_error(res):
+                try:
+                    res = agent.run_privileged(cmd, timeout)
+                except ACLPError:
+                    pass
+            return res, []
         raise ACLPError(f"Unknown package manager: {manager}")
+
+
+# ---------------------------------------------------------------------------
+# Privilege action handlers (اختیاری — مستند در docs/AGENT-API.md)
+# ---------------------------------------------------------------------------
+@handler("privilege_status")
+def h_privilege_status(agent, payload):
+    """Report whether the agent runs elevated and how elevation can be gained.
+    Lets the chatbot know in advance whether admin/root commands are possible."""
+    info = {
+        "elevated": is_elevated(),
+        "platform": platform_system(),
+        "user": os.environ.get("USERNAME") or os.environ.get("USER", ""),
+        "auto_elevate": bool(agent.cfg.get("auto_elevate", False)),
+        "credentials_configured": bool(agent.cfg.get("elevation_user") or agent.cfg.get("elevation_password")),
+        "elevation_user": agent.cfg.get("elevation_user", ""),
+    }
+    if os.name == "nt":
+        info["method"] = "UAC prompt (PowerShell Start-Process -Verb RunAs) when credentials/auto_elevate configured; run the agent as Administrator to avoid prompts"
+    else:
+        info["sudo_available"] = shutil.which("sudo") is not None
+        info["su_available"] = shutil.which("su") is not None
+        info["method"] = "sudo -S with configured password, fallback to plain sudo (NOPASSWD), fallback to su -c"
+    info["note"] = "Elevation is optional; all normal actions work without it."
+    return info, []
+
+
+@handler("privilege_run")
+def h_privilege_run(agent, payload):
+    """Run ONE shell command with administrator/root privileges (when possible)."""
+    command = (payload.get("command") or "").strip()
+    if not command:
+        raise ACLPError("payload.command is required")
+    timeout = float(payload.get("timeout") or agent.cfg.get("command_timeout", 300))
+    return agent.run_privileged(command, timeout), []
 
 
 # ---------------------------------------------------------------------------
@@ -525,7 +676,17 @@ def h_install(agent, payload):
 class Agent:
     def __init__(self, cfg: dict):
         self.cfg = cfg
-        self.base = cfg["site_url"].rstrip("/") + "/wp-json/aclp/v1"
+        site = cfg["site_url"].rstrip("/")
+        if not site.startswith(("http://", "https://")):
+            site = "https://" + site
+        # کاندیدهای پایه: اگر HTTPS مشکل داشت (SSL/اتصال)، خودکار به HTTP سوییچ می‌کنیم.
+        self.base_candidates = [site + "/wp-json/aclp/v1"]
+        if site.startswith("https://"):
+            self.base_candidates.append("http://" + site[len("https://"):] + "/wp-json/aclp/v1")
+        elif site.startswith("http://"):
+            self.base_candidates.append("https://" + site[len("http://"):] + "/wp-json/aclp/v1")
+        self.base_index = 0
+        self.base = self.base_candidates[0]
         self.session = requests.Session()
         self.session.headers.update({
             "X-ACLP-Key": cfg["api_key"],
@@ -535,10 +696,27 @@ class Agent:
         self.err_streak = 0
         self.registered = False
 
+    # -- protocol fallback (پشتیبانی HTTP در صورت مشکل HTTPS) ---------------
+    def _maybe_switch_protocol(self, exc) -> bool:
+        """On TLS/connection failures, permanently switch to the next base URL
+        candidate (https <-> http). Returns True when we switched."""
+        if not self.cfg.get("allow_http_fallback", True):
+            return False
+        if self.base_index >= len(self.base_candidates) - 1:
+            return False
+        import requests.exceptions as rex
+        if isinstance(exc, (rex.SSLError, rex.ConnectTimeout, rex.ConnectionError)):
+            self.base_index += 1
+            self.base = self.base_candidates[self.base_index]
+            log(f"Connection problem ({type(exc).__name__}) — switching base URL to: {self.base}")
+            return True
+        return False
+
     # -- low level ---------------------------------------------------------
     def api(self, method: str, path: str, expect_json: bool = True, **kwargs):
         url = self.base + path
-        for attempt in range(3):
+        attempt = 0
+        while attempt < 4:
             try:
                 resp = self.session.request(method, url, timeout=kwargs.pop("timeout", 30), **kwargs)
                 if resp.status_code >= 400:
@@ -552,8 +730,12 @@ class Agent:
                     return resp.json()
                 return resp
             except (requests.RequestException, ValueError) as exc:
-                log(f"Network error on {method} {path} (attempt {attempt + 1}/3): {exc}")
-                time.sleep(2 * (attempt + 1))
+                attempt += 1
+                if self._maybe_switch_protocol(exc):
+                    url = self.base + path
+                    continue  # پروتکل عوض شد؛ این تلاش حساب نمی‌شود
+                log(f"Network error on {method} {path} (attempt {attempt}/4): {exc}")
+                time.sleep(2 * attempt)
         return {"ok": False, "message": "network failure after retries"}
 
     # -- lifecycle ---------------------------------------------------------
@@ -661,6 +843,123 @@ class Agent:
                 )
         except OSError as exc:
             return {"ok": False, "message": f"Cannot read file {path}: {exc}"}
+
+    # -- privilege elevation (اختیاری) --------------------------------------
+    def run_privileged(self, command: str, timeout: float) -> dict:
+        """Run a shell command with admin/root privileges when possible.
+        - Already elevated -> run directly.
+        - Linux -> sudo -S with configured password, fallback to plain sudo
+          (NOPASSWD), fallback to su -c with password.
+        - Windows -> PowerShell Start-Process -Verb RunAs (UAC prompt appears;
+          the user clicks Yes). If elevation is impossible, a clear ACLPError is
+          raised so the chatbot can tell the user — nothing breaks silently.
+        """
+        if is_elevated():
+            return _run_shell(command, timeout)
+        if platform_system() == "Windows":
+            return self._run_elevated_windows(command, timeout)
+        return self._run_elevated_unix(command, timeout)
+
+    def _run_elevated_unix(self, command: str, timeout: float) -> dict:
+        password = self.cfg.get("elevation_password") or ""
+        sudo = shutil.which("sudo")
+        su = shutil.which("su")
+
+        if sudo:
+            cmd = ["sudo", "-S", "-p", "", "-H", "bash", "-lc", command]
+            try:
+                proc = subprocess.run(cmd, input=_pw_bytes(password), capture_output=True, timeout=timeout)
+                result = _shell_result(proc)
+                if proc.returncode == 0:
+                    return result
+                if not password and _looks_like_permission_error(result):
+                    log("sudo needs a password — configure elevation_password in config.json")
+                # else: real command failure, return it as-is
+                return result
+            except subprocess.TimeoutExpired:
+                raise ACLPError(f"Elevated command timed out after {int(timeout)} seconds")
+
+        if su:
+            cmd = ["su", "-c", "bash -lc " + shlex.quote(command)]
+            try:
+                proc = subprocess.run(cmd, input=_pw_bytes(password), capture_output=True, timeout=timeout)
+                return _shell_result(proc)
+            except subprocess.TimeoutExpired:
+                raise ACLPError(f"Elevated command timed out after {int(timeout)} seconds")
+
+        raise ACLPError(
+            "Elevation unavailable: no sudo/su found, or provide elevation_user/elevation_password "
+            "in config.json. Normal (non-elevated) actions still work fine."
+        )
+
+    def _run_elevated_windows(self, command: str, timeout: float) -> dict:
+        """Elevate via PowerShell Start-Process -Verb RunAs.
+        A UAC consent dialog appears on the user's screen — they must click Yes.
+        All quoting problems are avoided by passing scripts as -EncodedCommand."""
+        out_path = os.path.join(tempfile.gettempdir(), f"aclp_elev_out_{int(time.time())}.txt")
+        err_path = os.path.join(tempfile.gettempdir(), f"aclp_elev_err_{int(time.time())}.txt")
+        inner = (
+            "$c = '" + command.replace("'", "''") + "'\n"
+            "$o = '" + out_path.replace("'", "''") + "'\n"
+            "$e = '" + err_path.replace("'", "''") + "'\n"
+            "& cmd.exe /c $c 1> $o 2> $e\n"
+            "exit $LASTEXITCODE"
+        )
+        outer = (
+            "$inner = '" + inner.replace("'", "''") + "'\n"
+            "$b = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($inner))\n"
+            "try {\n"
+            "  $p = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-EncodedCommand',$b) -Verb RunAs -PassThru -Wait\n"
+            "  exit $p.ExitCode\n"
+            "} catch {\n"
+            "  [Console]::Error.WriteLine('UAC-ELEVATION-DECLINED: ' + $_.Exception.Message)\n"
+            "  exit 2147942584\n"
+            "}"
+        )
+        outer_b64 = base64.b64encode(outer.encode("utf-16-le")).decode("ascii")
+        try:
+            proc = subprocess.run(
+                ["powershell", "-NoProfile", "-EncodedCommand", outer_b64],
+                capture_output=True, timeout=timeout,
+            )
+        except subprocess.TimeoutExpired:
+            raise ACLPError(f"Elevated command timed out after {int(timeout)} seconds")
+        except FileNotFoundError:
+            raise ACLPError("powershell.exe not found — cannot elevate on this system")
+
+        if proc.returncode == 2147942584 or b"UAC-ELEVATION-DECLINED" in (proc.stderr or b""):
+            raise ACLPError("UAC elevation was declined or failed. Click Yes on the UAC prompt, or run the agent as Administrator.")
+
+        out = ""
+        err = ""
+        try:
+            with open(out_path, "r", encoding="utf-16", errors="replace") as fh:
+                out = fh.read()
+        except OSError:
+            try:
+                with open(out_path, "r", encoding="utf-8", errors="replace") as fh:
+                    out = fh.read()
+            except OSError:
+                pass
+        try:
+            with open(err_path, "r", encoding="utf-16", errors="replace") as fh:
+                err = fh.read()
+        except OSError:
+            try:
+                with open(err_path, "r", encoding="utf-8", errors="replace") as fh:
+                    err = fh.read()
+            except OSError:
+                pass
+        for p in (out_path, err_path):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+        return {
+            "exit_code": proc.returncode,
+            "stdout": out[:MAX_OUTPUT_CHARS],
+            "stderr": (err + "\n[note: elevated via UAC prompt]").strip()[:MAX_OUTPUT_CHARS],
+        }
 
     # -- main loop -----------------------------------------------------------
     def run(self, once: bool = False):

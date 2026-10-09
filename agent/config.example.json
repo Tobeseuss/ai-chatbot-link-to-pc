@@ -4,5 +4,9 @@
   "client_name": "my-windows-pc",
   "client_uid": "REPLACE-WITH-UUID-AUTO-GENERATED-BY-SETUP",
   "poll_interval": 5,
-  "command_timeout": 300
+  "command_timeout": 300,
+  "allow_http_fallback": true,
+  "auto_elevate": false,
+  "elevation_user": "",
+  "elevation_password": ""
 }
