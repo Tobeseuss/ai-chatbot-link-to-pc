@@ -1,0 +1,225 @@
+# ACLP REST API Reference — for AI Agents / Chatbots
+
+> **Persian note (برای کاربر):** این سند عمداً به انگلیسی نوشته شده است، چون مخاطب اصلی آن چت‌بات‌ها و ایجنت‌های هوش مصنوعی هستند که مستندات انگلیسی را قابل‌اعتمادتر پارس می‌کنند. راهنمای فارسی کاربر: `docs/USER-GUIDE.fa.md`. این فایل را در system prompt یا ابزار knowledge چت‌بات خود قرار دهید تا بداند چگونه با سیستم کاربر تعامل کند.
+
+Base URL: `https://YOUR-SITE.com/wp-json/aclp/v1`
+Plugin version: 1.0.0 · API namespace: `aclp/v1`
+
+---
+
+## 1. Authentication
+
+Every request requires your API key (created in WordPress admin → AI-PC Link → API Keys):
+
+```
+X-ACLP-Key: aclp_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+Alternative: `Authorization: Bearer aclp_live_...` or `?api_key=...` query param.
+
+Agent-facing endpoints additionally require the client UID header:
+
+```
+X-ACLP-Client-UID: <uuid-of-the-registered-machine>
+```
+
+Rate limit: default 240 requests/minute per key → HTTP 429 when exceeded.
+
+## 2. Core concepts
+
+- **Command**: one instruction for one machine. Lifecycle: `pending → sent → running → completed | failed`.
+- **Client**: one machine running the ACLP agent. Identified by `client_uid`.
+- **Payload**: JSON object with parameters for the action (`type`).
+- **wait mode**: send `wait: true` on `POST /commands` and the HTTP response blocks (max 25s) until the result arrives — recommended for short actions.
+
+## 3. Endpoints
+
+### 3.1 `GET /ping` — connectivity + auth check
+Response: `{"ok":true,"version":"1.0.0","server_time":"...","site":"...","site_url":"..."}`
+
+### 3.2 `GET /clients` — list machines bound to this key
+```json
+{"ok":true,"clients":[
+  {"client_uid":"...","name":"my-laptop","os":"Windows 11","hostname":"LAPTOP",
+   "online":true,"last_seen_at":"...","commands_total":42,"registered_at":"..."}
+]}
+```
+Pick a `client_uid` from here when multiple machines are connected.
+
+### 3.3 `POST /commands` — send a command to a machine
+Request body:
+```json
+{
+  "type": "shell",
+  "payload": { "command": "dir C:\\" },
+  "client_uid": "optional-uuid",
+  "broadcast": false,
+  "source": "my-chatbot",
+  "wait": true,
+  "timeout": 20
+}
+```
+- `type` (required): one of the actions below.
+- `payload` (required): action-specific object.
+- `client_uid`: target machine. Rules: omitted + 1 client → that client; omitted + several clients but only 1 online → the online one; omitted + several online → HTTP 400 with a `clients` list so you can choose.
+- `broadcast: true`: queue for **all online clients** of this key (ignore `wait`).
+- `wait` + `timeout` (1–25s): block until result (recommended for short actions).
+- `source`: free-form label (your bot's name) shown in the history.
+
+Immediate response (no wait): `{"ok":true,"commands":[{"command_uid":"...","client_uid":"...","status":"pending"}]}`
+
+Wait-mode response = full command object (same as `GET /commands/{uid}`).
+
+### 3.4 `GET /commands/{command_uid}` — fetch status / result
+```json
+{
+  "command_uid":"...","type":"shell","status":"completed",
+  "payload":{...},
+  "result":{"exit_code":0,"stdout":"...","stderr":""},
+  "error":null,"duration_ms":1234,"source":"my-chatbot",
+  "client":{"client_uid":"...","name":"my-laptop","hostname":"LAPTOP"},
+  "files":[{"file_id":7,"filename":"out.png","size":48211,"url":"https://site/wp-json/aclp/v1/files/7","direction":"from_pc"}],
+  "created_at":"...","sent_at":"...","completed_at":"..."
+}
+```
+
+### 3.5 `GET /commands?limit=20` — recent commands of this key
+
+### 3.6 `POST /files` (multipart) — upload a file to deliver **to the PC**
+Form fields: `file` (binary), optional `command_uid`.
+Response: `{"ok":true,"file_id":9,"filename":"setup.zip","size":1048576,"url":"https://site/wp-json/aclp/v1/files/9"}`
+Then send a `file_download` command referencing that `file_id`.
+
+### 3.7 `GET /files/{file_id}` — download a file produced by the PC
+Requires ownership by your key. Returns binary stream with `Content-Disposition: attachment`.
+
+## 4. Action types & payload schemas
+
+| type | payload | result (summary) |
+|------|---------|------------------|
+| `ping` | `{}` | `{"pong":true,"time":"...","agent_version":"1.0.0"}` |
+| `sysinfo` | `{}` | OS, hostname, CPU, RAM, disk, python, agent version |
+| `shell` | `{"command":"<any shell command>","timeout":300}` | `{"exit_code":int,"stdout":str,"stderr":str}` — Windows: cmd (`shell=True`), Linux: `/bin/sh`. Any command is allowed (no restrictions by design). |
+| `run_python` | `{"code":"print('hi')","timeout":120}` | stdout/stderr of the temporary script |
+| `process_list` | `{}` | `{"count":N,"processes":[{pid,name,user,memory_mb}...]}` (needs psutil for structured output; else raw tasklist/ps text in `.raw`) |
+| `kill_process` | `{"pid":1234}` or `{"name":"chrome.exe"}` | `{"terminated":[pids]}` |
+| `file_read` | `{"path":"C:\\a.txt","max_bytes":8388608}` | `{"content_base64":"...","size":N,"truncated":bool}` — decode base64 to get bytes |
+| `file_write` | `{"path":"C:\\a.txt","content_base64":"...","append":false}` | `{"bytes_written":N,"size":N}` |
+| `file_list` | `{"path":"/home","limit":1000}` | `{"entries":[{name,is_dir,size,modified}...]}` |
+| `file_delete` | `{"path":"...","recursive":false}` | `{"deleted":"..."}` |
+| `file_mkdir` | `{"path":"..."}` | `{"created":"..."}` |
+| `file_move` | `{"src":"...","dst":"...","copy":false}` | moved/copied paths |
+| `upload_file` | `{"path":"C:\\report.pdf"}` | result includes `files:[{file_id,url,...}]` — download via `GET /files/{file_id}` |
+| `file_download` | `{"file_id":9,"save_path":"C:\\Users\\me\\Downloads\\setup.zip"}` | `{"saved":"...","size":N}` — pairs with `POST /files` |
+| `open_url` | `{"url":"https://example.com"}` | opens the default browser on the PC |
+| `http_request` | `{"url":"https://api.site/v1","method":"GET","headers":{},"body":null,"max_bytes":2000000}` | `{"status":200,"headers":{...},"body":"<text>","truncated":bool}` — lets you browse the web through the PC's network |
+| `screenshot` | `{}` | PC uploads PNG → result includes `files:[{file_id,url}]` (requires pyautogui on the PC) |
+| `install` | `{"packages":["vlc"],"manager":"auto","timeout":1800}` | shell output of winget/choco (Windows) or apt/dnf/pacman (Linux) / pip |
+
+**Unknown `type`** → command completes as `failed` with error `Unknown action type: ...`. Check `GET /ping`'s `version` and this doc after updates.
+
+## 5. Recommended agent workflow (pseudo-code)
+
+```
+1. GET /ping                        → verify key & server
+2. GET /clients                     → choose client_uid (or remember it)
+3. POST /commands {type, payload, client_uid, wait:true, timeout:25}
+   - completed → use result/files
+   - timeout   → remember command_uid; poll GET /commands/{uid} every 3–5s
+4. For files in result.files → GET /files/{file_id} (binary)
+5. To send a file: POST /files (multipart) → file_id →
+   POST /commands {type:"file_download", payload:{file_id, save_path}}
+```
+
+## 6. curl examples
+
+```bash
+BASE="https://your-site.com/wp-json/aclp/v1"
+KEY="aclp_live_xxxx"
+
+# connectivity check
+curl -H "X-ACLP-Key: $KEY" "$BASE/ping"
+
+# run a shell command and wait for the result
+curl -X POST "$BASE/commands" -H "X-ACLP-Key: $KEY" -H "Content-Type: application/json" \
+  -d '{"type":"shell","payload":{"command":"python -V"},"wait":true,"timeout":20}'
+
+# broadcast to all online machines
+curl -X POST "$BASE/commands" -H "X-ACLP-Key: $KEY" -H "Content-Type: application/json" \
+  -d '{"type":"sysinfo","broadcast":true}'
+
+# download a file the PC produced (file_id from result.files)
+curl -H "X-ACLP-Key: $KEY" -o report.pdf "$BASE/files/12"
+
+# upload a file to the PC
+curl -X POST "$BASE/files" -H "X-ACLP-Key: $KEY" -F "file=@./installer.zip"
+# then:
+curl -X POST "$BASE/commands" -H "X-ACLP-Key: $KEY" -H "Content-Type: application/json" \
+  -d '{"type":"file_download","payload":{"file_id":9,"save_path":"C:/Users/me/Desktop/installer.zip"},"wait":true}'
+```
+
+## 7. OpenAI-style function/tool definition
+
+Provide this tool to your chatbot so it can drive the PC:
+
+```json
+{
+  "type": "function",
+  "function": {
+    "name": "pc_control",
+    "description": "Execute an action on the user's PC through ACLP. Actions: shell (run any command), file_read/file_write/file_list/file_delete/file_mkdir/file_move, upload_file (from PC), file_download (to PC, needs file_id from POST /files upload), open_url, http_request, screenshot, sysinfo, process_list, kill_process, install, run_python, ping.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "type": {"type": "string", "enum": ["shell","file_read","file_write","file_list","file_delete","file_mkdir","file_move","upload_file","file_download","open_url","http_request","screenshot","sysinfo","process_list","kill_process","install","run_python","ping"]},
+        "payload": {"type": "object", "description": "Action parameters, e.g. {\"command\":\"ls -la\"} for shell; {\"path\":\"/tmp/x\"} for file ops"},
+        "client_uid": {"type": "string", "description": "Target machine; omit if only one machine is connected"}
+      },
+      "required": ["type", "payload"]
+    }
+  }
+}
+```
+
+Tool handler pseudo-code:
+
+```python
+def pc_control(type, payload, client_uid=None):
+    r = requests.post(f"{BASE}/commands",
+        headers={"X-ACLP-Key": KEY},
+        json={"type": type, "payload": payload, "client_uid": client_uid,
+              "wait": True, "timeout": 25}, timeout=30)
+    cmd = r.json()
+    if cmd.get("status") not in ("completed", "failed"):
+        # still pending → poll
+        while True:
+            time.sleep(3)
+            cmd = requests.get(f"{BASE}/commands/{cmd['command_uid']}",
+                               headers={"X-ACLP-Key": KEY}).json()
+            if cmd["status"] in ("completed", "failed"):
+                break
+    return cmd  # status, result, error, files[]
+```
+
+## 8. Error codes
+
+| HTTP | code | meaning |
+|------|------|---------|
+| 401 | `aclp_missing_key` / `aclp_invalid_key` | key missing/wrong |
+| 403 | `aclp_key_inactive` / `aclp_unknown_client` | key disabled; client not registered to this key |
+| 429 | `aclp_rate_limited` | slow down |
+| 400 | `aclp_invalid` / `aclp_select_client` / `aclp_no_file` | bad input; several machines online → pass `client_uid` |
+| 409 | `aclp_no_clients` / `aclp_no_online_clients` / `aclp_max_clients` | no machine bound to key / none online / client cap reached |
+| 404 | `aclp_not_found` | command/file not found for this key |
+| 410 | `aclp_file_expired` | file deleted by retention policy |
+
+Errors are returned as `{"code":"...","message":"<Persian human message>","data":{"status":<http>}}` (WordPress REST standard).
+
+## 9. Limits & gotchas
+
+- `wait` blocks max **25 seconds**; long jobs: omit `wait`, poll `GET /commands/{uid}`.
+- Max upload size per file: default **256 MB** (configurable server-side; also bounded by PHP `post_max_size`).
+- `shell` output is truncated to ~400 KB per stream by the agent.
+- File results older than the retention period return HTTP 410 — re-run `upload_file` if needed.
+- Timestamps are UTC (`Y-m-d H:i:s`).
+- Every action is logged server-side (command, payload, result, files, duration) and visible to the owner in the WordPress admin — act accordingly.
