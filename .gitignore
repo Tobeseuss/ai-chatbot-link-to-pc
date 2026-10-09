@@ -14,3 +14,6 @@ dist/
 # Local IDE
 .vscode/
 .idea/
+
+# vault محلی PAT — هرگز به ریپو نرود (GitHub Push Protection توکن را حتی کدگذاری‌شده هم رد می‌کند)
+.ai/pat.b64
