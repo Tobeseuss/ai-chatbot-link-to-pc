@@ -133,3 +133,27 @@
 - دو ستون دیتابیس جدید با `maybe_upgrade` (admin_init) مهاجرت می‌شوند؛ نصب تازه از CREATE TABLE می‌گیرد. برای ستون‌های آینده همین الگو.
 - متن فارسی جدید در ایجنت: همیشه از `say()`/`fa()` استفاده کن، هرگز `print` مستقیم فارسی. فایل لاگ خام می‌ماند.
 - regex JS بلوک کلید (`- API key:  PASTE_YOUR_REAL_API_KEY_HERE[\s\S]*?Never guess or invent credentials\.`) به متن heredoc وابسته است؛ اگر متن را عوض کردی، هر دو سمت (PHP + JS) را هماهنگ کن.
+
+---
+Task ID: 4
+Agent: Super Z (main agent)
+Task: v1.3.0 — گزارش‌های زنده مالک: ایجنت تمام-انگلیسی، رفع بسته‌شدن فوری ایجنت (کشف دو باگ بحرانی با تست زنده روی tpptc.ir)، صفر وابستگی ایجنت، php-cli واقعی، گفتگوی مستقیم کاربر با هوش مصنوعی + ارسال فایل با لینک سایت
+
+Work Log:
+- چک کامیت‌های ریموت (اصل ۳): origin/main = c7d40ea، هیچ کامیت جدیدی خارج از v1.2.0 نبود (0 پشت / 0 جلو)
+- تست زنده tpptc.ir (پلاگین نصب‌شده: v1.2.0): کشف ۱ — هاست هدر سفارشی X-ACLP-Key را strip می‌کند (401 aclp_missing_key) ولی Authorization: Bearer و ?api_key= کار می‌کنند → علت اصلی «بسته شدن ایجنت بلافاصله پس از تنظیمات»
+- تست زنده ثبت‌نام: کشف ۲ — باگ بحرانی پلاگین از v1.0.0: `ACLP_Clients::register` فیلد client_uid را INSERT نمی‌کرد؛ همه کلاینت‌ها با UID خالی ذخیره می‌شدند → بعد از ثبت‌نام هیچ فرمانی قابل تحویل نبود (404 «سیستم موردنظر یافت نشد») و کلاینت دوم به‌خاطر UNIQUE KEY ثبت نمی‌شد
+- FIX پلاگین: client_uid در INSERT + پاک‌سازی خودکار ردیف‌های UID خالی هنگام آپگرید (add_missing_columns)
+- FIX ایجنت: احراز هویت Bearer-first (هر دو هدر ارسال می‌شوند)
+- ایجنت v1.3.0 بازنویسی بخش‌های کلیدی: حذف کامل fa/say/reshaper/bidi (تمام-انگلیسی؛ ۰ نویسه RTL در فایل)، حذف requests و ساخت لایه urllib (_http_request/_http_download/_multipart + NetworkError(ssl|timeout|connection) برای fallback)، نقطه ورود crash-proof (traceback + لاگ + pause_before_exit روی TTY)، چک‌لیست ۵ مرحله‌ای در شکست ثبت‌نام، حالت جدید `chat` (thread polling هر ۲ث + /file با آپلود و پیوست لینک امضاشده)، start_agent.bat با py→python fallback و بدون pip
+- پلاگین v1.3.0: کلاس ACLP_Chat + جدول aclp_chat_messages + ۴ مسیر REST چت (send/pending/reply/replies با long-poll و تحویل) + لینک download_url امضاشده (HMAC wp_salt، hash_equals) در api_shape همه فایل‌ها + صفحه پنل «گفتگوها» + بخش گفتگو در جزئیات کلید + cron پاک‌سازی (retention + max_chat_rows) + chat_supported در ping + ACLP_VERSION 1.3.0
+- متن اصل ۴ (منبع واحد agent_prompt): Bearer توصیه‌شده، بخش «Talking with the USER directly»، download_url؛ همگام‌سازی بایت‌به‌بایت README با اسکریپت جدید scripts/sync_prompt_readme.py
+- php-cli: باینری استاتیک PHP 8.2.28 در tools-bin/php (بدون روت)؛ check_php_syntax.php اکنون php -l واقعی اجرا می‌کند — ۱۶/۱۶ فایل OK
+- تست‌ها: smoke_test_agent.py (mock server کامل REST) ۱۰/۱۰ پاس شامل چرخه کامل چت؛ live_test_agent.py روی tpptc.ir: ping Bearer ✓، ثبت‌نام ✓، فرمان روی v1.2.0 با 404 مطابق انتظار باگ قدیمی؛ py_compile ✓؛ چک ۰ نویسه RTL در ایجنت ✓
+- مستندات: AGENT-API.md (v1.3.0 + بخش ۱۱ چت + Bearer + download_url)، README (بلوک اصل ۴ هماهنگ + قابلیت‌ها + نسخه‌ها + نقشه راه)، USER-GUIDE.fa.md (chat + عیب‌یابی بسته‌شدن پنجره + کنسول انگلیسی + Bearer)، SECURITY (ریسک لینک امضاشده + پیام‌ها)، CHANGELOG (1.3.0)، project.md (جداول + 3.9/3.10 + وضعیت + ADR 16-20 + موقوع‌سازی ADR-14)، agent/README.fa.md بازنویسی، brainstorm.md (گفتگو #۴)، worklog ریپو
+
+Stage Summary:
+- ریپو: https://github.com/Tobeseuss/ai-chatbot-link-to-pc (main) — Release v1.3.0 با دو ZIP
+- دو باگ بحرانی با تست زنده پیدا و رفع شد: (۱) strip هدر سفارشی توسط هاست → Bearer-first؛ (۲) عدم ذخیره client_uid در پلاگین → FIX + پاک‌سازی آپگرید
+- ایجنت اکنون: تمام-انگلیسی، صفر وابستگی (پایتون 3.8+ خام)، مقاوم در برابر خطا (پنجره باز می‌ماند)، دارای حالت chat کاربر↔هوش مصنوعی با ارسال فایل از طریق لینک سایت
+- بعد از انتشار: کاربر باید ZIP پلاگین v1.3.0 را نصب کند (ردیف‌های خراب خودکار پاک می‌شوند؛ شامل ردیف تست «ACLP-Dev-LiveTest») و ایجنت v1.3.0 را جایگزین کند؛ سپس تست زنده نهایی با `python aclp_agent.py chat`

@@ -13,7 +13,7 @@
 **این بخش با هر تغییری بروز می‌شود.** متن آماده زیر را کپی کنید و به هر هوش مصنوعی / LLM ای که می‌خواهید کنترل سیستم شما را داشته باشد بدهید؛ حتی مدل‌های ضعیف و محدود و **چت‌بات‌های فقط-متنی** (که نمی‌توانند کد اجرا کنند) هم با همین متن می‌توانند پل را راه بیندازند (حالت B). جای `API key` عمداً خالی است تا خود ایجنت از شما سوال کند و آن را از پنل وردپرس (AI-PC Link ← کلیدهای API) بگیرد — در داشبورد پلاگین می‌توانید کلید موردنظر را از منوی کشویی انتخاب کنید تا متن با همان کلید ساخته و کپی شود و آدرس سایت هم خودکار جای‌گذاری می‌شود. همین متن از مسیر `GET {آدرس‌سایت}/wp-json/aclp/v1/agent-prompt` هم در دسترس است و همیشه با نسخه افزونه هماهنگ است.
 
 ```text
-# INSTRUCTION FOR THE AI AGENT (PC bridge — ACLP v1.2.0)
+# INSTRUCTION FOR THE AI AGENT (PC bridge — ACLP v1.3.0)
 
 You are connected to the user's real computer through the "AI Chatbot Link to PC" (ACLP) bridge.
 Through it you can FULLY control the user's PC: run any shell command, read/write/move/delete any file,
@@ -32,6 +32,11 @@ Read ONLY your mode's section below, then follow it literally, step by step.
 - If the API key above is a placeholder (empty/invalid), STOP and ask the user to copy a real key
   from WordPress admin -> AI-PC Link -> API Keys (the full key is visible there and can be copied).
   Never guess or invent credentials.
+- Authentication header (IMPORTANT): prefer the STANDARD header, because some
+  web hosts strip custom headers:
+      Authorization: Bearer <the API key>
+  The custom header "X-ACLP-Key: <key>" is ALSO accepted if you cannot set
+  Authorization. Content-Type: application/json for JSON bodies.
 - HTTPS is preferred. If HTTPS fails with a connection/SSL error, automatically retry the same
   request over HTTP (the server supports both).
 
@@ -39,9 +44,10 @@ Read ONLY your mode's section below, then follow it literally, step by step.
 ## MODE A — you can execute code (Python/curl/etc.)
 =====================================================================
 
-### How to call the PC (always use these two headers)
-    X-ACLP-Key: <the API key>
-    Content-Type: application/json
+### How to call the PC (auth header)
+    Authorization: Bearer <the API key>      (preferred — standard header)
+    X-ACLP-Key: <the API key>                (also accepted)
+    Content-Type: application/json           (for JSON bodies)
 
 1) Send one action:  POST https://YOUR-SITE.com/wp-json/aclp/v1/commands
    Body: {"type": "<action>", "payload": {...}, "wait": true, "timeout": 25}
@@ -52,8 +58,24 @@ Read ONLY your mode's section below, then follow it literally, step by step.
    or "broadcast": true to target all online PCs at once).
 4) Send a file TO the PC:  POST /files (multipart field "file") -> get file_id ->
    send command {"type": "file_download", "payload": {"file_id": <id>, "save_path": "C:/.../name.ext"}}.
-5) Files the PC produced appear in result.files[] with a "url"; download them with
-   GET /files/{file_id} using the same X-ACLP-Key header.
+5) Files the PC produced appear in result.files[] with a "url" AND a "download_url";
+   "download_url" is a signed link that needs NO headers — you can download it directly
+   (browser/curl/wget) even if you cannot send custom headers.
+
+### Talking with the USER directly (optional)
+If the user is chatting through the agent program on the PC (they ran
+"python aclp_agent.py chat"), you can exchange messages with them:
+1) Get new user messages:  GET /chat/pending?wait=25   (long-poll up to 25s)
+   -> {"messages": [{"id": N, "text": "...", "files": [{"file_id": N, "url": "...",
+      "filename": "...", "download_url": "..."}], "client": {"name": "..."}}]}
+   "wait": 0 returns immediately; files arrive as direct download links on the site.
+2) Reply:  POST /chat/send is NOT yours — you reply with:
+   POST https://YOUR-SITE.com/wp-json/aclp/v1/chat/reply
+   Body: {"text": "your reply", "client_uid": "<uid from message.client or omit>",
+          "source": "<your model name e.g. GPT-4o>"}
+3) Poll /chat/pending again for the user's next message. This is a real-time
+   chat channel IN ADDITION to commands — use it when the user wants to talk,
+   not when they want an action on the PC.
 
 =====================================================================
 ## MODE B — TEXT-ONLY chatbot (you cannot run anything)
@@ -96,6 +118,7 @@ shell also accepts {"elevated": true} to run with elevation when the user config
 ## Rules
 - Prefer "wait": true + polling (MODE A) or waiting for the user's paste (MODE B) instead of guessing results.
 - Explain to the user what you are about to run on their PC before running it.
+- File links: files you receive include "download_url" — a signed link that works without any header.
 - Full API reference (open it if unsure): https://github.com/Tobeseuss/ai-chatbot-link-to-pc/blob/main/docs/AGENT-API.md
 - Project repository: https://github.com/Tobeseuss/ai-chatbot-link-to-pc
 - If you need a capability that the bridge does not have yet, tell the user; qualified agents
@@ -155,9 +178,11 @@ shell also accepts {"elevated": true} to run with elevation when the user config
 | 🖥 **پنل مدیریت فارسی** | داشبورد آماری، مدیریت کلیدها، سیستم‌های آنلاین/آفلاین، تاریخچه با جزئیات کامل، تنظیمات |
 | 🌐 **پشتیبانی HTTP + HTTPS** | اگر HTTPS سایت مشکل داشت، ایجنت به‌صورت خودکار روی HTTP ادامه می‌دهد؛ متن آماده معرفی پل به ایجنت در داشبورد و `GET /agent-prompt` |
 | 🔐 **ارتقای سطح دسترسی اختیاری** | اکشن‌های `privilege_status` / `privilege_run` و پرچم `elevated` — sudo/su در لینوکس، UAC در ویندوز؛ کاملاً اختیاری |
-| 📊 **نمای کامل هر کلید API** | صفحه «جزئیات و اتصال‌ها» برای هر کلید: چه سیستم‌هایی متصل‌اند، ایجنت متصل شده یا نه، مشخصات کامل ایجنت (نسخه، سیستم‌عامل، IP، قابلیت‌ها)، هوش مصنوعی کنترل‌کننده (`ai_model`) و وضعیت **استفاده دوطرفه** (فرمان/نتیجه/فایل در هر دو جهت) |
+| 🗨 **گفتگوی مستقیم کاربر با هوش مصنوعی** | کاربر با اجرای `python aclp_agent.py chat` مستقیماً با هوش مصنوعی(های) متصل به کلید خود گفتگو می‌کند؛ پیام و فایل (به‌صورت لینک مستقیم از روی سایت — حتی اگر هوش مصنوعی آپلود فایل را پشتیبانی نکند) رد‌وبدل می‌شود و همه‌چیز در پنل «گفتگوها» ثبت می‌شود |
+| 🐍 **ایجنت بدون هیچ وابستگی** | ایجنت فقط با پایتون خام (3.8+) اجرا می‌شود — هیچ pip install و هیچ دانلودی لازم نیست؛ همه‌چیز داخل پوشه ایجنت است |
+| 🪟 **کنسول تمام-انگلیسی و مقاوم** | همه پیام‌های ایجنت انگلیسی است (مشکل نمایش فارسی در cmd ویندوز یک‌بار برای همیشه حذف شد) و هر خطای مهلک همراه توقف پنجره + لاگ کامل در `aclp_agent.log` نمایش داده می‌شود — پنجره دیگر بی‌صدا بسته نمی‌شود |
 | 💬 **پشتیبانی از چت‌بات‌های فقط-متنی** | دستور `python aclp_agent.py relay <action>` — چت‌باتی که نمی‌تواند کد اجرا کند فقط یک دستور چاپ می‌کند؛ کاربر آن را در ترمینال اجرا و خروجی JSON را به چت‌بات برمی‌گرداند. تاریخچه کامل هم روی سرور ثبت می‌شود |
-| 🅿️ **نمایش صحیح فارسی در کنسول** | ایجنت کنسول را UTF-8 می‌کند و در ترمینال‌های بدون پشتیبانی RTL (cmd ویندوز) متن فارسی را خودکار reshape می‌کند؛ دیگر متن‌های فارسی به‌هم‌ریخته نمایش داده نمی‌شوند |
+| 🌍 **کنسول تمام-انگلیسی (از v1.3.0)** | پیام‌های ایجنت فقط انگلیسی است تا مشکل نمایش متن‌های فارسی/RTL در cmd قدیمی ویندوز برای همیشه حذف شود؛ خروجی دستورات به همان شکل (UTF-8) منتقل می‌شود |
 | 🤖 **توسعه‌پذیری توسط خود ایجنت‌ها** | ایجنت‌های متصل می‌توانند با PAT قابل‌تنظیم در پنل، تغییرات را کامیت و نسخه جدید منتشر کنند (`docs/AGENT-CONTRIBUTION.md`) |
 | 🔄 **آپدیت آسان** | نسخه‌بندی معنایی (semver) + فایل‌های ZIP آماده در بخش Releases به‌همراه ایجنت به‌روزشده |
 
@@ -167,14 +192,14 @@ shell also accepts {"elevated": true} to run with elevation when the user config
 
 ### گام ۱ — نصب افزونه در وردپرس
 
-1. از بخش [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) فایل `ai-chatbot-link-to-pc-v1.2.0.zip` را دانلود کنید.
+1. از بخش [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) فایل `ai-chatbot-link-to-pc-v1.3.0.zip` را دانلود کنید.
 2. در وردپرس: **افزونه‌ها ← افزودن ← بارگذاری افزونه** و فایل ZIP را نصب و فعال کنید.
 3. منوی جدید **«AI-PC Link»** در پیشخوان ظاهر می‌شود.
 
 ### گام ۲ — ساخت کلید API و نصب ایجنت
 
 1. **AI-PC Link ← کلیدهای API ← ساخت کلید جدید** — کلید ساخته می‌شود و از همان‌جا و در هر زمان آینده قابل مشاهده و کپی است (دکمه «کپی» کنار کلید).
-2. فایل `aclp-agent-v1.2.0.zip` را از Releases دانلود و روی سیستم خود (ویندوز/لینوکس) استخراج کنید.
+2. فایل `aclp-agent-v1.3.0.zip` را از Releases دانلود و روی سیستم خود (ویندوز/لینوکس) استخراج کنید.
 3. اجرا کنید:
    - **ویندوز:** دوبار کلیک روی `start_agent.bat`
    - **لینوکس:** `chmod +x start_agent.sh && ./start_agent.sh`
@@ -227,12 +252,12 @@ python aclp_agent.py relay file_list --json {"path": "C:/Users"}
 
 | فایل | کاربرد | محل |
 |------|--------|-----|
-| `ai-chatbot-link-to-pc-v1.2.0.zip` | افزونه وردپرس | [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) |
-| `aclp-agent-v1.2.0.zip` | ایجنت سیستم (پایتون) | [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) |
+| `ai-chatbot-link-to-pc-v1.3.0.zip` | افزونه وردپرس | [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) |
+| `aclp-agent-v1.3.0.zip` | ایجنت سیستم (پایتون — بدون هیچ وابستگی) | [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) |
 
-پیش‌نیازها: وردپرس 5.8+ با PHP 7.4+ · پایتون 3.9+ روی سیستم کاربر
+پیش‌نیازها: وردپرس 5.8+ با PHP 7.4+ · پایتون 3.8+ روی سیستم کاربر
 
-> ایجنت در اولین اجرا خودش کتابخانه `requests` را نصب می‌کند (و در ترمینال‌های قدیمی ویندوز، بسته‌های کوچک نمایش فارسی را). برای قابلیت اسکرین‌شات: `pip install pyautogui pillow`
+> ایجنت از نسخه 1.3.0 فقط با کتابخانه استاندارد پایتون کار می‌کند — هیچ pip install و هیچ دانلودی لازم نیست؛ پوشه ایجنت کامل و خودکفاست. برای قابلیت اختیاری اسکرین‌شات: `pip install pyautogui pillow`
 
 ---
 
@@ -289,9 +314,10 @@ python aclp_agent.py relay file_list --json {"path": "C:/Users"}
 - [x] **v1.0.0** — هسته پلاگین، REST API، پنل فارسی، ایجنت کراس‌پلتفرم، تاریخچه کامل
 - [x] **v1.1.0** — fallback خودکار HTTP، ارتقای سطح دسترسی اختیاری، یکپارچگی گیت‌هاب (PAT از پنل)، متن آماده معرفی پل به ایجنت (`/agent-prompt` + داشبورد + README)
 - [x] **v1.2.0** — چت‌بات‌های فقط-متنی (حالت relay ایجنت + حالت B در متن اصل ۴)، نمایش دائمی کلیدها و PAT با دکمه کپی، صفحه «جزئیات و اتصال‌ها» هر کلید (سیستم‌های متصل، مشخصات ایجنت، هوش مصنوعی کنترل‌کننده، وضعیت استفاده دوطرفه)، انتخاب کلید + جای‌گذاری خودکار آدرس سایت در متن داشبورد، `ai_model` در ثبت‌نام ایجنت، نمایش صحیح فارسی در کنسول
-- [ ] **v1.3** — WebSocket برای دریافت لحظه‌ای فرمان (بدون polling) + اعلان به چت‌بات با webhook
-- [ ] **v1.4** — رمزنگاری سرتاسری payload، پشتیبانی macOS، حالت تأیید دستوری اختیاری
-- [ ] **v1.5** — اجرای زمان‌بندی‌شده فرمان‌ها، گروه‌بندی سیستم‌ها، نقش‌های کاربری
+- [x] **v1.3.0** — گفتگوی مستقیم کاربر با هوش مصنوعی از طریق ایجنت (`chat` + چهار مسیر REST جدید + پنل «گفتگوها»)، احراز هویت Bearer-first (رفع قطع ارتباط روی هاست‌هایی که هدر سفارشی را حذف می‌کنند)، **رفع باگ بحرانی ذخیره‌سازی client_uid**، لینک دانلود امضاشده فایل‌ها (`download_url` بدون نیاز به هدر)، ایجنت تمام-انگلیسی + بدون وابستگی (فقط کتابخانه استاندارد) + مقاوم در برابر خطا (پنجره باز می‌ماند + لاگ کامل)
+- [ ] **v1.4** — WebSocket برای دریافت لحظه‌ای فرمان (بدون polling) + اعلان به چت‌بات با webhook
+- [ ] **v1.5** — رمزنگاری سرتاسری payload، پشتیبانی macOS، حالت تأیید دستوری اختیاری
+- [ ] **v1.6** — اجرای زمان‌بندی‌شده فرمان‌ها، گروه‌بندی سیستم‌ها، نقش‌های کاربری
 
 پیشنهادهای شما هم خوشآمدید — [Issue بسازید](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/issues).
 

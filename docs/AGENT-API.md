@@ -3,9 +3,16 @@
 > **Persian note (برای کاربر):** این سند عمداً به انگلیسی نوشته شده است، چون مخاطب اصلی آن چت‌بات‌ها و ایجنت‌های هوش مصنوعی هستند که مستندات انگلیسی را قابل‌اعتمادتر پارس می‌کنند. راهنمای فارسی کاربر: `docs/USER-GUIDE.fa.md`. این فایل را در system prompt یا ابزار knowledge چت‌بات خود قرار دهید تا بداند چگونه با سیستم کاربر تعامل کند.
 
 Base URL: `https://YOUR-SITE.com/wp-json/aclp/v1`
-Plugin version: 1.2.0 · API namespace: `aclp/v1`
+Plugin version: 1.3.0 · API namespace: `aclp/v1`
 
-> **v1.2.0 highlights:** text-only chatbots can now drive the PC through the agent's **relay mode**
+> **v1.3.0 highlights:** **USER CHAT** — the user can now chat with you directly through the agent
+> program (`python aclp_agent.py chat`): four new endpoints (`POST /chat/send`, `GET /chat/pending`,
+> `POST /chat/reply`, `GET /chat/replies`) — see section 11 · **auth: `Authorization: Bearer` is now
+> the RECOMMENDED header** (some web hosts strip the custom `X-ACLP-Key` header — Bearer always
+> survives) · every file object now includes a signed `download_url` that needs **no headers at all**
+> · the bundled agent is now **ALL-ENGLISH**, **crash-proof** (window stays open on errors) and has
+> **ZERO dependencies** (pure Python standard library — nothing is pip-installed).
+> **v1.2.0:** text-only chatbots can drive the PC through the agent's **relay mode**
 > (`python aclp_agent.py relay <action> ...` — see section 10) · `GET /agent-prompt` accepts
 > `?api_key=` to embed a real key · `GET /clients` now returns agent specs (version, python, IP,
 > capabilities, controlling AI model) · agents can self-report their controlling AI via the
@@ -26,13 +33,20 @@ The bundled Python agent does this automatically (disable in its config.json wit
 
 ## 1. Authentication
 
-Every request requires your API key (created in WordPress admin → AI-PC Link → API Keys):
+Every request requires your API key (created in WordPress admin → AI-PC Link → API Keys).
 
+**RECOMMENDED (v1.3.0+):** use the standard Authorization header — some web hosts silently
+strip unknown/custom headers, and Bearer always reaches WordPress:
+
+```
+Authorization: Bearer aclp_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+Also accepted (any one of):
 ```
 X-ACLP-Key: aclp_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+?api_key=aclp_live_xxx   (query parameter)
 ```
-
-Alternative: `Authorization: Bearer aclp_live_...` or `?api_key=...` query param.
 
 Agent-facing endpoints additionally require the client UID header:
 
@@ -54,10 +68,11 @@ Rate limit: default 240 requests/minute per key → HTTP 429 when exceeded.
 ### 3.1 `GET /ping` — connectivity + auth check
 Response:
 ```json
-{"ok":true,"version":"1.1.0","server_time":"...","site":"...","site_url":"...",
+{"ok":true,"version":"1.3.0","chat_supported":true,"server_time":"...","site":"...","site_url":"...",
  "http_fallback_url":"http://YOUR-SITE.com/wp-json/aclp/v1","allow_http_fallback":true,
  "docs_url":".../docs/AGENT-API.md"}
 ```
+`chat_supported` is `true` when the plugin is v1.3.0+ (user chat endpoints exist).
 
 ### 3.2 `GET /agent-prompt` — public onboarding text for AI agents (no key needed)
 Returns `{"ok":true,"version":"...","usage":"...","docs_url":"...","repo_url":"...","prompt":"..."}`.
@@ -142,11 +157,18 @@ Wait-mode response = full command object (same as `GET /commands/{uid}`).
 
 ### 3.8 `POST /files` (multipart) — upload a file to deliver **to the PC**
 Form fields: `file` (binary), optional `command_uid`.
-Response: `{"ok":true,"file_id":9,"filename":"setup.zip","size":1048576,"url":"https://site/wp-json/aclp/v1/files/9"}`
+Response: `{"ok":true,"file_id":9,"filename":"setup.zip","size":1048576,"url":"https://site/wp-json/aclp/v1/files/9","download_url":"https://site/wp-json/aclp/v1/files/9?aclp_token=..."}`
 Then send a `file_download` command referencing that `file_id`.
 
 ### 3.9 `GET /files/{file_id}` — download a file produced by the PC
-Requires ownership by your key. Returns binary stream with `Content-Disposition: attachment`.
+Requires ownership by your key **or** a valid signed token. Returns binary stream with
+`Content-Disposition: attachment`.
+
+**Signed download links (v1.3.0):** every file object returned by the API now includes
+`download_url` — a link with an HMAC token (`?aclp_token=...`) that works in any browser,
+curl or wget **without any auth header**. Use it when you cannot set custom headers, or when
+you want to hand a file to the user/another AI as a plain link. Links stay valid while the
+file exists (retention policy governs deletion).
 
 ## 4. Action types & payload schemas
 
@@ -322,3 +344,66 @@ send them too:
   per-key view: "هوش مصنوعی کنترل‌کننده"). Set it in the agent's config.json ("ai_model": "ChatGPT").
 - `agent_version`, `os`, `os_version`, `hostname`, `python_version`, `capabilities` — machine specs
   visible to the owner in the admin panel.
+
+## 11. USER CHAT — talk with the user through the agent program (v1.3.0)
+
+The user can chat with you directly from the connected PC by running:
+
+```
+python aclp_agent.py chat
+```
+
+Their messages (and files) arrive through the bridge — you do NOT need the agent's machine
+to answer; you only need HTTP access to the site. This is a real-time conversational channel
+**in addition to** the command queue. The bundled agent polls for your replies every ~2s and
+prints them in the terminal.
+
+### 11.1 Get new user messages — `GET /chat/pending`
+```
+GET {BASE}/chat/pending?wait=25
+```
+- `wait` (0–25, default 0): long-poll seconds. The server holds the request until a new user
+  message arrives or the timeout expires. Poll in a loop with `wait=25` for near-real-time.
+- Auth: key only (any AI using the key sees the user's messages for that key).
+- Each returned message is marked delivered — it will not be returned again.
+
+Response:
+```json
+{"ok":true,"count":1,"messages":[
+  {"id":12,"direction":"to_ai","text":"please check disk space",
+   "files":[{"file_id":34,"url":"https://site/wp-json/aclp/v1/files/34",
+             "download_url":"https://site/wp-json/aclp/v1/files/34?aclp_token=...",
+             "filename":"report.csv","size":2048}],
+   "source":"user:my-pc","status":"delivered",
+   "client":{"client_uid":"...","name":"my-pc","hostname":"DESKTOP"},
+   "created_at":"2026-10-09 06:00:00"}
+]}
+```
+
+### 11.2 Reply to the user — `POST /chat/reply`
+```json
+{"text": "C: has 120 GB free. Anything else?",
+ "client_uid": "optional-uid-of-one-machine",
+ "source": "ChatGPT"}
+```
+- `client_uid` (optional): target one machine's chat window; omit → all machines of this key see it.
+- `source` (optional): your model name — shown to the user and in the admin panel.
+- Auth: key only. Response: `{"ok":true,"message_id":13}`.
+- The user sees your reply within ~2 seconds in their terminal.
+
+### 11.3 (Agent-side) fetch replies — `GET /chat/replies?since=<id>&limit=50&order=asc`
+Used by the agent program (auth: key + `X-ACLP-Client-UID`). Implement it only if you write
+your own agent. Returns `from_ai` messages addressed to this machine (or broadcast).
+
+### 11.4 Files in chat
+- **User → you:** the agent uploads the file to the site and sends the message with a
+  `download_url` — download it with a plain GET, no headers needed. Use this even when your
+  own front-end cannot receive file uploads: the link always works.
+- **You → user:** attach files to a `chat/reply` the same way (upload via `POST /files`, then
+  put `[{"file_id": N}]` in the reply's `files` array) — or simply paste a `download_url` in
+  your text.
+
+### 11.5 Chat etiquette
+- Answer through `POST /chat/reply`; run actions through `POST /commands` — do not mix them.
+- Messages the user sends here are plain conversation; if they ask for an action, switch to commands.
+- Everything (messages, files, commands) is visible to the owner in WordPress admin → AI-PC Link → گفتگوها.

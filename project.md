@@ -80,9 +80,10 @@
 | جدول | نقش | نکات مهم |
 |------|-----|----------|
 | `aclp_api_keys` | کلیدها | `key_hash` (SHA-256) + `key_plain` (از v1.2.0 به خواست مالک: نمایش دوباره کلید در پنل) |
-| `aclp_clients` | سیستم‌های متصل | `client_uid` یکتا؛ `last_seen_at` مبنای آنلاین/آفلاین؛ `ai_model` (v1.2.0) نام هوش مصنوعی کنترل‌کننده |
+| `aclp_clients` | سیستم‌های متصل | `client_uid` یکتا (⚠️ از v1.3.0 واقعاً ذخیره می‌شود — تا 1.2.0 باگ خالی‌ماندن داشت)؛ `last_seen_at` مبنای آنلاین/آفلاین؛ `ai_model` (v1.2.0) نام هوش مصنوعی کنترل‌کننده |
 | `aclp_commands` | فرمان‌ها + نتایج | قلب تاریخچه؛ payload/result به‌صورت JSON |
-| `aclp_files` | متادیتای فایل‌ها | فایل فیزیکی در `wp-content/uploads/aclp-files/Y/m/` |
+| `aclp_files` | متادیتای فایل‌ها | فایل فیزیکی در `wp-content/uploads/aclp-files/Y/m/`؛ لینک امضاشده `download_url` از v1.3.0 |
+| `aclp_chat_messages` | پیام‌های گفتگوی کاربر ↔ هوش مصنوعی (v1.3.0) | direction: to_ai/from_ai؛ files به‌صورت JSON؛ status تحویل |
 | `aclp_logs` | لاگ رویدادها | audit trail کامل (auth_failed، key_created، ...) |
 
 ### 3.3 احراز هویت
@@ -119,28 +120,41 @@
 
 ### 3.7 تنظیمات (option `aclp_settings`)
 
-`poll_interval, online_timeout, command_timeout, history_retention_days, file_retention_days, max_log_entries, max_commands_rows, max_file_size_mb, rate_limit_per_min, max_pending_per_client, delete_data_on_uninstall, github_repo_url, github_pat`
+`poll_interval, online_timeout, command_timeout, history_retention_days, file_retention_days, max_log_entries, max_commands_rows, max_chat_rows (v1.3.0), max_file_size_mb, rate_limit_per_min, max_pending_per_client, delete_data_on_uninstall, github_repo_url, github_pat`
 
 نگهداری خودکار در cron ساعتی `aclp_hourly_maintenance` (کلاس `ACLP_Cron`).
 
-### 3.8 حالت Relay ایجنت و نمایش صحیح فارسی کنسول (v1.2+)
+### 3.8 حالت Relay ایجنت (v1.2+)
 
 - **relay (چت‌بات فقط-متنی):** `python aclp_agent.py relay shell <کلمات>` / `relay <action>` / `relay <action> --json {…}` — ایجنت خودش فرمان را با POST /commands صف می‌کند (client_uid خودش، source = ai_model یا text-chatbot-relay)، از صف خودش برمی‌دارد و اجرا می‌کند و در پایان کل شیء فرمان (status/result/error/files) را به‌صورت یک بلوک JSON چاپ می‌کند. کاربر خروجی را به چت‌بات برمی‌گرداند. تاریخچه کامل روی سرور می‌ماند.
-- **کنسول فارسی:** `_console_setup()` خروجی/ورودی را UTF-8 می‌کند (در ویندوز: SetConsoleOutputCP(65001) + chcp 65001). تشخیص قابلیت bidi ترمینال (`WT_SESSION`/`TERM_PROGRAM`/غیرویندوز): ترمینال مدرن → متن منطقی خام؛ cmd قدیمی ویندوز → reshape با `arabic-reshaper`+`python-bidi` (نصب خودکار best-effort؛ در صورت شکست fallback به پیام انگلیسی). توابع: `fa()` (شکل‌دهی)، `say(fa, en)` (پیام دوزبانه). فایل لاگ همیشه متن منطقی خام UTF-8 است.
+- از v1.3.0 کنسول ایجنت تمام-انگلیسی است و پیاده‌سازی reshaping فارسی (fa/say/reshaper/bidi) حذف شد — ADR-14 موقوف؛ ADR-17 مراجعه شود.
+
+### 3.9 گفتگوی مستقیم کاربر با هوش مصنوعی (v1.3+)
+
+- **حالت `chat` ایجنت:** `python aclp_agent.py chat` — ورودی کاربر با `POST /chat/send` (نیازمند کلید + client_uid) ثبت می‌شود؛ thread پس‌زمینه هر ۲ ثانیه `GET /chat/replies?since=` را می‌گیرد و پاسخ‌ها را چاپ می‌کند. `/file <مسیر>` فایل را با `/agent/files` آپلود و لینک `download_url` امضاشده را در پیام پیوست می‌کند.
+- **سمت هوش مصنوعی:** `GET /chat/pending?wait=0..25` (long-poll؛ پیام‌های `to_ai` تحویل‌نشده را می‌آورد و delivered علامت می‌زند) و `POST /chat/reply` (بدنه: text، client_uid اختیاری، source نام مدل).
+- **دیتابیس:** جدول `aclp_chat_messages` + کلاس `ACLP_Chat`؛ پاک‌سازی با retention و `max_chat_rows`.
+- **پنل:** صفحه «گفتگوها» (فیلتر کلید) + بخش گفتگو در «جزئیات و اتصال‌ها».
+- **لینک امضاشده فایل‌ها:** `ACLP_Files::download_url()` — HMAC-SHA256 با `wp_salt('auth')` روی `aclp_file_{id}`؛ `GET /files/{id}` توکن را با `hash_equals` می‌پذیرد (بدون هدر هم فایل دانلود می‌شود — برای هوش مصنوعی‌های بدون قابلیت هدر).
+
+### 3.10 لایه HTTP بدون وابستگی ایجنت (v1.3+)
+
+ایجنت هیچ کتابخانه خارجی ندارد: `_http_request`/`_http_download`/`_multipart` روی `urllib.request` ساخته‌اند؛ خطاهای اتصال به `NetworkError(kind=ssl|timeout|connection)` ترجمه می‌شوند تا `_maybe_switch_protocol` بتواند HTTPS⇄HTTP سوییچ کند. احراز هویت: **`Authorization: Bearer` اول** (هاست‌هایی مثل tpptc.ir هدر سفارشی X-ACLP-Key را strip می‌کنند — باگ v1.2.0 ایجنت که باعث بسته شدن فوری می‌شد) + X-ACLP-Key برای سازگاری.
 
 ## 4. وضعیت فعلی
 
-**نسخه جاری: 1.2.0 (2026-10-09)**
+**نسخه جاری: 1.3.0 (2026-10-09)**
 
-- [x] هسته پلاگین: جداول، تنظیمات، cron نگهداری، uninstall
-- [x] REST API کامل (۱۴ مسیر: + `/agent-prompt`، `/github-integration`) با احراز هویت کلید + نرخ
-- [x] پنل مدیریت فارسی: داشبورد (متن اصل ۴ با انتخاب کلید + آدرس خودکار)، کلیدها (کامل و قابل کپی)، صفحه جزئیات هر کلید (اتصال‌ها + ai_model + استفاده دوطرفه)، سیستم‌ها، تاریخچه با جزئیات کامل، تنظیمات (+ PAT با دکمه کپی)
-- [x] ایجنت پایتون: ۲۰ اکشن، setup wizard فارسی، auto-install وابستگی، backoff، لاگ، relay برای چت‌بات‌های فقط-متنی، کنسول فارسی صحیح
-- [x] fallback خودکار HTTP هنگام مشکل HTTPS (ایجنت + فیلدهای ping)
+- [x] هسته پلاگین: جداول (شامل `aclp_chat_messages`)، تنظیمات، cron نگهداری، uninstall، مهاجرت خودکار (+ پاک‌سازی کلاینت‌های UID خالی)
+- [x] REST API کامل (۱۸ مسیر: + ۴ مسیر گفتگو) با احراز هویت کلید + نرخ؛ Bearer توصیه‌شده
+- [x] پنل مدیریت فارسی: داشبورد (متن اصل ۴ با انتخاب کلید + آدرس خودکار)، کلیدها (کامل و قابل کپی)، جزئیات هر کلید (+ بخش گفتگو)، سیستم‌ها، تاریخچه، **گفتگوها**، تنظیمات
+- [x] ایجنت پایتون: ۲۰ اکشن، **صفر وابستگی** (فقط کتابخانه استاندارد 3.8+)، setup wizard انگلیسی، **مقاوم در برابر خطا** (پنجره باز می‌ماند + لاگ)، relay برای چت‌بات‌های فقط-متنی، **حالت chat کاربر با هوش مصنوعی + ارسال فایل با لینک**
+- [x] fallback خودکار HTTP هنگام مشکل HTTPS + **Bearer-first** (رفع قطع ارتباط روی هاست‌های strip-کننده هدر)
+- [x] **رفع باگ بحرانی ذخیره‌سازی client_uid** (تأییدشده با تست زنده روی tpptc.ir)
 - [x] ارتقای سطح دسترسی اختیاری (sudo/su/UAC) بدون وابستگی بقیه عملکرد به آن
-- [x] یکپارچگی گیت‌هاب: PAT از پنل + `GET /github-integration` + پروتکل `docs/AGENT-CONTRIBUTION.md` + نقشه vault در `.ai/README.md`
-- [x] مستندات کامل (فارسی + مرجع API انگلیسی برای ایجنت‌ها + پروتکل مشارکت ایجنت‌ها)
-- [x] اسکریپت build و انتشار (tools/build_release.py)
+- [x] یکپارچگی گیت‌هاب: PAT از پنل + `GET /github-integration` + پروتکل `docs/AGENT-CONTRIBUTION.md`
+- [x] مستندات کامل (فارسی + مرجع API انگلیسی + پروتکل مشارکت)؛ چکر PHP با php-cli واقعی (باینری استاتیک)
+- [x] اسکریپت build و انتشار (tools/build_release.py) + smoke/live تست ایجنت (scripts/)
 
 ## 5. تصمیمات معماری ثبت‌شده (ADR)
 
@@ -161,6 +175,11 @@
 | 13 | حالت relay برای چت‌بات‌های فقط-متنی (v1.2.0) | خواسته مالک: حتی چت‌بات‌های بدون اجرای کد باید بتوانند با سیستم تعامل کنند؛ کاربر به‌عنوان دست ایجنت عمل می‌کند و فرمان از همان صف عادی می‌رود تا تاریخچه کامل بماند |
 | 14 | reshaping فارسی فقط در ترمینال‌های بدون bidi (v1.2.0) | خواسته مالک: رفع به‌هم‌ریختگی فارسی کنسول؛ ترمینال‌های مدرن (WT/VS Code/لینوکس) خودشان bidi دارند و reshape دوباره خراب می‌کند؛ تشخیص با WT_SESSION/TERM_PROGRAM |
 | 15 | شمارش استفاده دوطرفه از روی جداول commands/files (بدون ستون جدید) (v1.2.0) | مشتق‌شدنی و همیشه سازگار با تاریخچه؛ سطح‌بندی full/partial/one_way/none در `ACLP_API_Keys::usage_stats()` |
+| 16 | ~~ذخیره client_uid~~ — BUGFIX (v1.3.0): فیلد client_uid در INSERT جدول کلاینت‌ها اضافه شد | کشف با تست زنده: از v1.0.0 فیلد ثبت نمی‌شد و کلاینت‌ها با UID خالی ذخیره می‌شدند؛ احراز هویت کلاینت بعد از ثبت‌نام شکست می‌خورد؛ آپگرید ردیف‌های خراب را پاک می‌کند |
+| 17 | ایجنت تمام-انگلیسی و بدون وابستگی (v1.3.0) — ADR-14 موقوف | خواسته مالک پس از ادامه مشکل نمایش فارسی: به‌جای ترمیم، رابط انگلیسی شد (حذف ریشه)؛ وابستگی requests/reshaper/bidi حذف و با urllib جایگزین شد تا «یک کلید، بدون دانلود» اجرا شود |
+| 18 | احراز هویت Bearer-first (v1.3.0) | تست زنده tpptc.ir: هاست هدر سفارشی X-ACLP-Key را strip می‌کند؛ Bearer هدر استاندارد است و همیشه می‌رسد؛ X-ACLP-Key برای سازگاری حفظ شد |
+| 19 | فایل‌های گفتگو با لینک امضاشده (v1.3.0) | خواسته مالک: هوش مصنوعی‌هایی که آپلود فایل را پشتیبانی نمی‌کنند بتوانند فایل بگیرند — لینک HMAC با wp_salt بدون هدر کار می‌کند؛ ریسک در SECURITY ثبت شد |
+| 20 | چت کاربر↔هوش مصنوعی روی جدول جداگانه با status تحویل (v1.3.0) | جداسازی از صف فرمان‌ها؛ long-poll ساده (مثل wait فرمان‌ها) سازگار با هاست اشتراکی؛ polling سمت ایجنت هر ۲ ثانیه کافی و سبک است |
 
 ## 6. قرارداد نسخه‌بندی (Semver)
 
@@ -180,7 +199,7 @@ ai-chatbot-link-to-pc/
 │   ├── ai-chatbot-link-to-pc.php   ← فایل اصلی
 │   ├── uninstall.php
 │   ├── readme.txt
-│   ├── includes/                   ← هسته (۱۱ کلاس؛ agent_prompt در class-aclp-utils.php)
+│   ├── includes/                   ← هسته (۱۲ کلاس؛ agent_prompt در class-aclp-utils.php؛ چت در class-aclp-chat.php)
 │   └── admin/                      ← پنل مدیریت + css/js
 ├── agent/                          ← ایجنت پایتون (این پوشه ZIP می‌شود)
 │   ├── aclp_agent.py
