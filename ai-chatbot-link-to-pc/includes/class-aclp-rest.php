@@ -20,6 +20,9 @@
  *   POST /files                  (آپلود فایل برای ارسال به سیستم)
  * مشترک (کلید + مالکیت):
  *   GET  /files/{file_id}        (دانلود فایل)
+ * دروازه URL (اصل اساسی ۵ — v2.0.0؛ تعامل فقط با «باز کردن آدرس»):
+ *   GET  /url/run                (دستور در انتهای URL؛ نتیجه در همان صفحه — text/plain)
+ *   GET  /url/result             (بررسی نتیجه با ticket پس از چند ثانیه)
  *
  * @package ACLP
  */
@@ -142,6 +145,21 @@ class ACLP_REST {
                         'callback'            => array( __CLASS__, 'route_chat_replies' ),
                         'permission_callback' => '__return_true',
                 ) );
+
+                // ---------- دروازه URL (اصل اساسی ۵ — v2.0.0) ----------
+                // برای ایجنت‌هایی که «امکان تعامل با API ندارند» ولی می‌توانند یک آدرس وب را
+                // باز و مرور کنند: دستور در انتهای URL قرار می‌گیرد و نتیجه در همان صفحه
+                // (text/plain) نمایش داده می‌شود. با &format=json پاسخ JSON استاندارد است.
+                register_rest_route( self::NS, '/url/run', array(
+                        'methods'             => 'GET',
+                        'callback'            => array( __CLASS__, 'route_url_run' ),
+                        'permission_callback' => '__return_true',
+                ) );
+                register_rest_route( self::NS, '/url/result', array(
+                        'methods'             => 'GET',
+                        'callback'            => array( __CLASS__, 'route_url_result' ),
+                        'permission_callback' => '__return_true',
+                ) );
         }
 
         /* ---------------------------------------------------------------------
@@ -158,6 +176,8 @@ class ACLP_REST {
                         'ok'                    => true,
                         'version'               => ACLP_VERSION,
                         'chat_supported'        => version_compare( ACLP_VERSION, '1.3.0', '>=' ),
+                        // دروازه URL (اصل اساسی ۵) — تعامل فقط با باز کردن آدرس (v2.0.0).
+                        'url_gate'              => version_compare( ACLP_VERSION, '2.0.0', '>=' ),
                         'server_time'           => ACLP_Utils::now(),
                         'site'                  => get_bloginfo( 'name' ),
                         'site_url'              => $site,
@@ -821,6 +841,364 @@ class ACLP_REST {
                         'messages' => $messages,
                         'server_time' => ACLP_Utils::now(),
                 ) );
+        }
+
+        /* ---------------------------------------------------------------------
+         * دروازه URL (اصل اساسی ۵ — v2.0.0)
+         *
+         * خواسته مالک: «هوش‌های مصنوعی اعلام می‌کنند امکان تعامل با API را ندارند ولی
+         * می‌توانند یک آدرس وب را باز و مرور کنند» — پس حالت سوم تعامل: دستور در انتهای
+         * URL قرار می‌گیرد، آدرس باز می‌شود و نتیجه در همان صفحه دیده و پردازش می‌شود.
+         * لحن پاسخ‌ها عمداً خنثی و انگلیسی است (مخاطب: ایجنت‌های هوش مصنوعی).
+         * ------------------------------------------------------------------- */
+
+        /**
+         * احراز هویت دروازه URL: کلید از پارامتر key (یا api_key).
+         *
+         * @param WP_REST_Request $request درخواست.
+         * @return array{0: object|WP_Error, 1: string} [کلید یا خطا, کلید خام]
+         */
+        private static function url_gate_auth( $request ) {
+                $raw = trim( (string) $request->get_param( 'key' ) );
+                if ( '' === $raw ) {
+                        $raw = trim( (string) $request->get_param( 'api_key' ) );
+                }
+                if ( '' === $raw ) {
+                        return array(
+                                new WP_Error( 'aclp_missing_key', 'API key missing — add &key=aclp_live_... to the URL.', array( 'status' => 401 ) ),
+                                '',
+                        );
+                }
+                // احراز هویت استاندارد (شامل محدودیت نرخ + touch) روی همان کلید.
+                $request->set_param( 'api_key', $raw );
+                return array( ACLP_Auth::authenticate( $request ), $raw );
+        }
+
+        /**
+         * خروجی text/plain صفحه دروازه URL (خروجی مستقیم — بدون پوشش JSON وردپرس).
+         *
+         * @param string $text متن صفحه.
+         */
+        private static function url_gate_text( $text ) {
+                nocache_headers();
+                header( 'Content-Type: text/plain; charset=utf-8' );
+                header( 'X-Content-Type-Options: nosniff' );
+                echo $text;
+                exit;
+        }
+
+        /**
+         * خطای دروازه URL: در حالت json به‌شکل WP_Error استاندارد، در حالت text صفحه خطا.
+         *
+         * @param string $code   کد خطا.
+         * @param string $en     پیام انگلیسی (مخاطب: ایجنت).
+         * @param int    $status وضعیت HTTP.
+         * @param string $format text|json.
+         * @return WP_Error|null (در حالت text خروجی چاپ و exit می‌شود).
+         */
+        private static function url_gate_error( $code, $en, $status, $format ) {
+                if ( 'json' === $format ) {
+                        return new WP_Error( $code, $en, array( 'status' => $status ) );
+                }
+                self::url_gate_text(
+                        "ACLP URL GATE — ERROR\n" .
+                        str_repeat( '-', 62 ) . "\n" .
+                        'STATUS:  error (' . (int) $status . ')' . "\n" .
+                        'CODE:    ' . $code . "\n" .
+                        'REASON:  ' . $en . "\n"
+                );
+                return null;
+        }
+
+        /**
+         * ترجمه خطاهای احراز هویت استاندارد (پیام فارسی) به پیام انگلیسی دروازه URL.
+         *
+         * @param WP_Error $err    خطا.
+         * @param string   $format text|json.
+         * @return WP_Error|null
+         */
+        private static function url_gate_error_from_wp_error( $err, $format ) {
+                $code   = $err->get_error_code();
+                $status = 401;
+                $data   = $err->get_error_data();
+                if ( is_array( $data ) && isset( $data['status'] ) ) {
+                        $status = (int) $data['status'];
+                }
+                $map = array(
+                        'aclp_missing_key'  => 'API key missing — add &key=aclp_live_... to the URL.',
+                        'aclp_invalid_key'  => 'invalid API key — copy the full key from WordPress admin -> AI-PC Link -> API Keys.',
+                        'aclp_key_inactive' => 'this API key is deactivated — ask the operator to enable it.',
+                        'aclp_rate_limited' => 'rate limit reached — wait about a minute and re-open this URL.',
+                );
+                $msg = isset( $map[ $code ] ) ? $map[ $code ] : $err->get_error_message();
+                return self::url_gate_error( $code, $msg, $status, $format );
+        }
+
+        /**
+         * نگاشت پارامتر cmd به کلید اصلی payload هر نوع فرمان.
+         * (shell→command، run_python→code، open_url/http_request→url)
+         *
+         * @param string $type نوع فرمان.
+         * @param string $cmd  متن دستور از URL.
+         * @return array
+         */
+        private static function url_gate_cmd_payload( $type, $cmd ) {
+                switch ( $type ) {
+                        case 'run_python':
+                                return array( 'code' => $cmd );
+                        case 'open_url':
+                        case 'http_request':
+                                return array( 'url' => $cmd );
+                        default:
+                                return array( 'command' => $cmd );
+                }
+        }
+
+        /**
+         * متن راهنمای دروازه URL (وقتی هیچ cmd/type/payload داده نشده باشد).
+         *
+         * @return string
+         */
+        private static function url_gate_usage() {
+                $site = untrailingslashit( home_url() );
+                $repo = untrailingslashit( (string) ACLP_Settings::get( 'github_repo_url', 'https://github.com/Tobeseuss/ai-chatbot-link-to-pc' ) );
+                return "ACLP URL GATE — usage (ACLP Bridge v" . ACLP_VERSION . ")\n" .
+                        str_repeat( '=', 62 ) . "\n\n" .
+                        "Run a shell command and read the result from the opened page:\n" .
+                        "  " . $site . "/wp-json/aclp/v1/url/run?key=YOUR_API_KEY&cmd=echo%20hello&wait=15\n\n" .
+                        "Non-shell job (no cmd — type only):\n" .
+                        "  " . $site . "/wp-json/aclp/v1/url/run?key=YOUR_API_KEY&type=sysinfo&wait=15\n\n" .
+                        "Fetch a previous result by ticket:\n" .
+                        "  " . $site . "/wp-json/aclp/v1/url/result?key=YOUR_API_KEY&ticket=JOB_UID\n\n" .
+                        "Parameters:\n" .
+                        "  key      (required) API key — aclp_live_...\n" .
+                        "  cmd      command text, URL-encoded (spaces = %20, & = %26, quotes = %22)\n" .
+                        "  type     job type (default shell) — e.g. sysinfo, screenshot, process_list\n" .
+                        "  payload  one line of URL-encoded JSON for advanced jobs\n" .
+                        "  client   client_uid — required only when several nodes share this key\n" .
+                        "  wait     0-25 seconds the page keeps collecting the result (default 15)\n" .
+                        "  format   text (default) | json\n\n" .
+                        "Full API reference: " . $repo . "/blob/main/docs/AGENT-API.md\n";
+        }
+
+        /**
+         * گزارش فرمان در قالب صفحه متنی (یا JSON استاندارد با command_shape).
+         *
+         * @param object $row     ردیف فرمان.
+         * @param string $format  text|json.
+         * @param string $raw_key کلید خام (برای ساخت لینک نتیجه در حالت pending).
+         * @return WP_REST_Response|null (در حالت text خروجی چاپ و exit می‌شود)
+         */
+        private static function url_gate_report( $row, $format, $raw_key ) {
+                if ( 'json' === $format ) {
+                        return rest_ensure_response( self::command_shape( $row ) );
+                }
+
+                $lines   = array();
+                $lines[] = 'ACLP URL GATE — job report (ACLP Bridge v' . ACLP_VERSION . ')';
+                $lines[] = str_repeat( '-', 62 );
+                $lines[] = 'JOB:      ' . $row->command_uid . ' (' . $row->type . ')';
+                $lines[] = 'STATUS:   ' . $row->status;
+
+                if ( in_array( $row->status, array( 'completed', 'failed' ), true ) ) {
+                        $lines[] = 'DURATION: ' . (int) $row->duration_ms . ' ms';
+                        $err = trim( (string) $row->error );
+                        if ( '' !== $err ) {
+                                $lines[] = 'ERROR:    ' . $err;
+                        }
+                        $lines[] = '';
+                        $result = json_decode( (string) $row->result, true );
+                        $lines[] = 'RESULT:';
+                        $lines[] = ( null === $result || '' === (string) $row->result )
+                                ? '(empty)'
+                                : wp_json_encode( $result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+                } else {
+                        $lines[] = '';
+                        $lines[] = 'The job is still being processed (' . $row->status . ').';
+                        $lines[] = 'Open this URL in about 5 seconds to read the result:';
+                        $lines[] = untrailingslashit( home_url() ) . '/wp-json/aclp/v1/url/result?key=' . rawurlencode( $raw_key ) . '&ticket=' . rawurlencode( $row->command_uid );
+                }
+
+                $files = array();
+                foreach ( (array) ACLP_Files::for_command( $row->id ) as $f ) {
+                        $files[] = ACLP_Files::api_shape( $f );
+                }
+                $lines[] = '';
+                if ( $files ) {
+                        $lines[] = 'FILES (signed links — open or download without any header):';
+                        foreach ( $files as $f ) {
+                                $link = ! empty( $f['download_url'] ) ? $f['download_url'] : $f['url'];
+                                $lines[] = '  - ' . $f['filename'] . ' (' . ACLP_Utils::human_size( $f['size'] ) . '): ' . $link;
+                        }
+                } else {
+                        $lines[] = 'FILES: (none)';
+                }
+
+                self::url_gate_text( implode( "\n", $lines ) . "\n" );
+                return null;
+        }
+
+        /**
+         * GET /url/run — ثبت فرمان از طریق خودِ URL + انتظار تا ۲۵ ثانیه + نمایش نتیجه
+         * در همان صفحه بازشده (اصل اساسی ۵).
+         *
+         * پارامترها: key (یا api_key) | cmd | type | payload | client (یا client_uid) |
+         * wait (0-25، پیش‌فرض ۱۵) | format (text|json) | source (اختیاری).
+         *
+         * @param WP_REST_Request $request درخواست.
+         * @return WP_REST_Response|WP_Error|null
+         */
+        public static function route_url_run( $request ) {
+                $format = ( 'json' === strtolower( trim( (string) $request->get_param( 'format' ) ) ) ) ? 'json' : 'text';
+
+                $cmd         = trim( (string) $request->get_param( 'cmd' ) );
+                $type        = sanitize_key( (string) $request->get_param( 'type' ) );
+                $payload_raw = trim( (string) $request->get_param( 'payload' ) );
+
+                // راهنما: هیچ دستوری داده نشده — صفحه راهنما نمایش داده می‌شود (بدون نیاز به کلید).
+                if ( '' === $cmd && '' === $type && '' === $payload_raw ) {
+                        if ( 'json' === $format ) {
+                                return new WP_Error( 'aclp_invalid', 'Provide cmd=<url-encoded command> or type=<job type>.', array( 'status' => 400 ) );
+                        }
+                        self::url_gate_text( self::url_gate_usage() );
+                }
+
+                list( $key, $raw_key ) = self::url_gate_auth( $request );
+                if ( is_wp_error( $key ) ) {
+                        return self::url_gate_error_from_wp_error( $key, $format );
+                }
+
+                // تعیین گره مقصد — همان قواعد POST /commands (تک‌گره؛ broadcast اینجا نیست).
+                $client_param = trim( (string) $request->get_param( 'client' ) );
+                if ( '' === $client_param ) {
+                        $client_param = trim( (string) $request->get_param( 'client_uid' ) );
+                }
+                if ( '' !== $client_param ) {
+                        $c = ACLP_Clients::get_by_uid( $client_param );
+                        if ( ! $c || (int) $c->key_id !== (int) $key->id ) {
+                                return self::url_gate_error( 'aclp_unknown_client', 'unknown node for this API key — check the &client= value (the /clients endpoint lists nodes).', 404, $format );
+                        }
+                        $target = $c;
+                } else {
+                        $all    = ACLP_Clients::for_key( $key->id );
+                        $online = array_filter( $all, array( 'ACLP_Utils', 'client_is_online' ) );
+                        if ( 0 === count( $all ) ) {
+                                return self::url_gate_error( 'aclp_no_clients', 'no node is connected to this API key yet — start the ACLP agent first.', 409, $format );
+                        } elseif ( 1 === count( $all ) || 1 === count( $online ) ) {
+                                $target = 1 === count( $all ) ? reset( $all ) : reset( $online );
+                        } else {
+                                if ( 'json' === $format ) {
+                                        $list = array();
+                                        foreach ( $all as $c ) {
+                                                $list[] = array( 'client_uid' => $c->client_uid, 'name' => $c->name, 'online' => ACLP_Utils::client_is_online( $c ) );
+                                        }
+                                        return new WP_Error( 'aclp_select_client', 'Several nodes share this API key — add &client=<client_uid> to the URL.', array( 'status' => 400, 'clients' => $list ) );
+                                }
+                                $lines = array(
+                                        'ACLP URL GATE — select_node',
+                                        str_repeat( '-', 62 ),
+                                        'Several nodes are connected to this API key.',
+                                        'Re-open your URL adding &client=<client_uid>:',
+                                        '',
+                                );
+                                foreach ( $all as $c ) {
+                                        $lines[] = '  client=' . $c->client_uid . '   name=' . $c->name . '   online=' . ( ACLP_Utils::client_is_online( $c ) ? 'yes' : 'no' );
+                                }
+                                self::url_gate_text( implode( "\n", $lines ) . "\n" );
+                        }
+                }
+
+                // ساخت payload از cmd یا payload یا type.
+                if ( '' !== $payload_raw ) {
+                        $decoded = json_decode( $payload_raw, true );
+                        if ( ! is_array( $decoded ) ) {
+                                return self::url_gate_error( 'aclp_invalid', 'payload must be ONE line of URL-encoded JSON, e.g. payload=%7B%22path%22%3A%22C%3A%2F%22%7D', 400, $format );
+                        }
+                        $payload = $decoded;
+                        if ( '' === $type ) {
+                                $type = 'shell';
+                        }
+                } elseif ( '' !== $cmd ) {
+                        $type    = ( '' !== $type ) ? $type : 'shell';
+                        $payload = self::url_gate_cmd_payload( $type, $cmd );
+                } else {
+                        $payload = array();
+                }
+
+                $source_param = trim( (string) $request->get_param( 'source' ) );
+                $source       = ( '' !== $source_param ) ? $source_param : 'url-gate';
+
+                $row = ACLP_Commands::create( $key->id, $target->id, $type, $payload, $source );
+                if ( ! $row ) {
+                        return self::url_gate_error( 'aclp_db_error', 'could not queue the job — try again.', 500, $format );
+                }
+                ACLP_Logger::add( 'command_created', 'فرمان جدید از دروازه URL (اصل ۵) در صف قرار گرفت: ' . $type, array( 'source' => $source ), (int) $key->id, (int) $target->id, (int) $row->id );
+
+                // انتظار برای نتیجه (long-poll ساده — همسان با POST /commands).
+                $wait_raw = $request->get_param( 'wait' );
+                $wait     = ( null === $wait_raw || '' === $wait_raw ) ? 15 : min( 25, max( 0, (int) $wait_raw ) );
+                $deadline = microtime( true ) + $wait;
+                while ( true ) {
+                        $fresh = ACLP_Commands::get( $row->id );
+                        if ( $fresh ) {
+                                $row = $fresh;
+                        }
+                        if ( in_array( $row->status, array( 'completed', 'failed' ), true ) || microtime( true ) >= $deadline ) {
+                                break;
+                        }
+                        usleep( 500000 );
+                }
+
+                return self::url_gate_report( $row, $format, $raw_key );
+        }
+
+        /**
+         * GET /url/result — بررسی نتیجه یک فرمان با ticket پس از چند ثانیه (اصل اساسی ۵).
+         *
+         * پارامترها: key (یا api_key) | ticket (یا job یا command_uid) |
+         * wait (0-25، پیش‌فرض ۱۰) | format (text|json).
+         *
+         * @param WP_REST_Request $request درخواست.
+         * @return WP_REST_Response|WP_Error|null
+         */
+        public static function route_url_result( $request ) {
+                $format = ( 'json' === strtolower( trim( (string) $request->get_param( 'format' ) ) ) ) ? 'json' : 'text';
+
+                $ticket = trim( (string) $request->get_param( 'ticket' ) );
+                if ( '' === $ticket ) {
+                        $ticket = trim( (string) $request->get_param( 'job' ) );
+                }
+                if ( '' === $ticket ) {
+                        $ticket = trim( (string) $request->get_param( 'command_uid' ) );
+                }
+
+                list( $key, $raw_key ) = self::url_gate_auth( $request );
+                if ( is_wp_error( $key ) ) {
+                        return self::url_gate_error_from_wp_error( $key, $format );
+                }
+
+                if ( '' === $ticket ) {
+                        return self::url_gate_error( 'aclp_invalid', 'ticket is missing — open /url/run first; its page prints the result URL containing the ticket.', 400, $format );
+                }
+
+                $row = ACLP_Commands::get_by_uid( $ticket );
+                if ( ! $row || (int) $row->key_id !== (int) $key->id ) {
+                        return self::url_gate_error( 'aclp_not_found', 'job not found for this API key — check the ticket value.', 404, $format );
+                }
+
+                // انتظار اختیاری: صفحه تا رسیدن نتیجه می‌ماند (پیش‌فرض ۱۰ ثانیه).
+                $wait_raw = $request->get_param( 'wait' );
+                $wait     = ( null === $wait_raw || '' === $wait_raw ) ? 10 : min( 25, max( 0, (int) $wait_raw ) );
+                $deadline = microtime( true ) + $wait;
+                while ( ! in_array( $row->status, array( 'completed', 'failed' ), true ) && microtime( true ) < $deadline ) {
+                        usleep( 500000 );
+                        $fresh = ACLP_Commands::get( $row->id );
+                        if ( $fresh ) {
+                                $row = $fresh;
+                        }
+                }
+
+                return self::url_gate_report( $row, $format, $raw_key );
         }
 
         /* ---------------------------------------------------------------------

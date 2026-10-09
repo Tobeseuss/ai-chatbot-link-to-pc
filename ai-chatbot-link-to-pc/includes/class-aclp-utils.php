@@ -133,6 +133,12 @@ class ACLP_Utils {
          * باعث رد شدن درخواست توسط مدل‌های آموزش‌دیده‌ی ایمن می‌شد. چارچوب: سرویس پردازش
          * کار (job) → ثبت با POST در یک URL → بررسی نتیجه از URL نتیجه پس از چند ثانیه.
          *
+         * از v2.0.0 (اصل اساسی ۵ — خواسته مالک) حالت سوم تعامل اضافه شد: MODE C —
+         * دروازه URL برای ایجنت‌هایی که «امکان تعامل با API ندارند» ولی می‌توانند یک
+         * آدرس وب را باز و مرور کنند: دستور در انتهای URL قرار می‌گیرد و نتیجه در همان
+         * صفحه بازشده (text/plain) دیده و پردازش می‌شود.
+         * قاعده مالک: در هر تغییر آینده این حالت باید توسعه و تکمیل شود.
+         *
          * @param string $site_url آدرس سایت (خالی = سایت فعلی) — همیشه خودکار جای‌گذاری می‌شود.
          * @param string $api_key  کلید API (خالی = جای‌نگهدار تا ایجنت از کاربر بپرسد).
          * @return string
@@ -160,9 +166,10 @@ API responses; never assume them.
 ## 0) First, detect which MODE you are
 - MODE A = you can make HTTP requests yourself (Python, curl, JavaScript fetch, ...).
 - MODE B = you can only print text; a human runs the commands for you.
+- MODE C = you can only OPEN/BROWSE a URL and read the page (no POST, no headers).
 Read ONLY your mode's section below, then follow it literally, step by step.
 
-## Connection settings (both modes)
+## Connection settings (all modes)
 - Base URL:  {SITE_URL}/wp-json/aclp/v1
 {KEY_LINE}
 - Authentication header (IMPORTANT): prefer the STANDARD header, because some
@@ -246,7 +253,36 @@ in their terminal. For EVERY single step:
    NEVER invent output — always wait for the paste.
 
 =====================================================================
-## Job types (the "type" field) — both modes
+## MODE C — URL-ONLY clients (open a URL, read the page)
+=====================================================================
+If you cannot run code, send POST requests or set custom headers — but you CAN
+open a web address and read its content — use the URL Gateway. The whole cycle
+is one page view: the command sits at the end of the URL, and the opened page
+shows the job report.
+
+1) Submit a job and (normally) get the result in the same page view:
+       {SITE_URL}/wp-json/aclp/v1/url/run?key=<the API key>&cmd=<command>&wait=15
+   - "cmd" = one shell command, URL-encoded (spaces become %20). Example:
+       .../url/run?key=aclp_live_xxx&cmd=echo%20hello&wait=15
+   - Non-shell job: drop "cmd" and pass "type" instead, e.g.
+       .../url/run?key=aclp_live_xxx&type=sysinfo&wait=15
+   - "wait" = seconds the page keeps collecting the result (0-25, default 15).
+2) Read the plain-text report on the page: STATUS, RESULT, FILES. If STATUS is
+   still "pending" or "running", wait the seconds shown on the page, then open
+   the RESULT URL printed there (the /url/result link with your ticket). Repeat
+   until STATUS is "completed" or "failed". NEVER invent output — read the page.
+3) If the page says select_node, several nodes share this key: re-open the same
+   URL adding &client=<client_uid> of one node from the list.
+4) URL limits: keep "cmd" under ~1200 characters and URL-encode it fully
+   (& becomes %26, spaces %20, quotes %22). For advanced jobs use
+   &payload= with ONE line of URL-encoded JSON, e.g. for file_list:
+   &type=file_list&payload=%7B%22path%22%3A%22C%3A%2F%22%7D
+5) Files produced by the job appear in the FILES section as signed download
+   links that open in any browser — no headers needed. Add &format=json to
+   receive standard JSON instead of the plain-text page.
+
+=====================================================================
+## Job types (the "type" field) — all modes
 =====================================================================
 ping — service health check (returns version + capabilities)
 sysinfo — environment information summary
@@ -271,7 +307,8 @@ operator approval); shell also accepts {"elevated": true} when configured.
 
 ## Rules
 - Default to "wait": true; fall back to polling the result endpoint every 3-5 seconds
-  (MODE A) or waiting for the paste (MODE B). Never guess results.
+  (MODE A), waiting for the paste (MODE B) or re-opening the result URL (MODE C).
+  Never guess results.
 - Say briefly what each job does before submitting it.
 - Files you receive include "download_url" — a signed link that works without any header.
 - Full API reference (open it if unsure): {REPO_URL}/blob/main/docs/AGENT-API.md
@@ -283,7 +320,7 @@ PROMPT;
                 $prompt = str_replace(
                         array( '{VERSION}', '{SITE_URL}', '{KEY_LINE}', '{API_KEY_PH}', '{REPO_URL}' ),
                         array(
-                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '1.4.0',
+                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '2.0.0',
                                 untrailingslashit( (string) $site_url ),
                                 $key_line,
                                 $api_key_ph,

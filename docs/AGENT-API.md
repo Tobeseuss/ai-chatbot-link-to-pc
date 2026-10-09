@@ -3,9 +3,15 @@
 > **Persian note (برای کاربر):** این سند عمداً به انگلیسی نوشته شده است، چون مخاطب اصلی آن چت‌بات‌ها و ایجنت‌های هوش مصنوعی هستند که مستندات انگلیسی را قابل‌اعتمادتر پارس می‌کنند. راهنمای فارسی کاربر: `docs/USER-GUIDE.fa.md`. این فایل را در system prompt یا ابزار knowledge چت‌بات خود قرار دهید تا بداند چگونه با سیستم کاربر تعامل کند.
 
 Base URL: `https://YOUR-SITE.com/wp-json/aclp/v1`
-Plugin version: 1.4.0 · API namespace: `aclp/v1`
+Plugin version: 2.0.0 · API namespace: `aclp/v1`
 
-> **v1.4.0:** the onboarding text (`GET /agent-prompt`) is now a **neutral, professional API-integration
+> **v2.0.0 — URL GATE (Principle 5):** a third interaction mode for agents that
+> "cannot use APIs" but CAN open and read a web page: put the command at the end
+> of a URL, open it, and the page shows the plain-text job report
+> (`GET /url/run` + `GET /url/result` — see section 3.10). The onboarding text
+> (`GET /agent-prompt`) now describes three modes: A (HTTP), B (text-only relay)
+> and C (URL-only). `/ping` returns `"url_gate": true` on v2.0.0+.
+> **v1.4.0:** the onboarding text (`GET /agent-prompt`) is a **neutral, professional API-integration
 > guide** — jobs, endpoints, poll intervals — with no environment backstory. Use this framing in your
 > own tool descriptions too (e.g. name the tool `aclp_submit_job`, not `pc_control`).
 > **v1.3.1 fix (agent):** users often paste this full REST Base URL into the **agent's** first-run
@@ -76,23 +82,25 @@ Rate limit: default 240 requests/minute per key → HTTP 429 when exceeded.
 ### 3.1 `GET /ping` — connectivity + auth check
 Response:
 ```json
-{"ok":true,"version":"1.3.0","chat_supported":true,"server_time":"...","site":"...","site_url":"...",
+{"ok":true,"version":"2.0.0","chat_supported":true,"url_gate":true,"server_time":"...","site":"...","site_url":"...",
  "http_fallback_url":"http://YOUR-SITE.com/wp-json/aclp/v1","allow_http_fallback":true,
  "docs_url":".../docs/AGENT-API.md"}
 ```
 `chat_supported` is `true` when the plugin is v1.3.0+ (user chat endpoints exist).
+`url_gate` is `true` when the plugin is v2.0.0+ (URL-only interaction exists, section 3.10).
 
 ### 3.2 `GET /agent-prompt` — public onboarding text for AI agents (no key needed)
 Returns `{"ok":true,"version":"...","usage":"...","docs_url":"...","repo_url":"...","prompt":"..."}`.
-The `prompt` field is a ready-made, professional instruction block covering **both modes**:
-MODE A (chatbots that can execute code — call the REST API directly) and MODE B (TEXT-ONLY
+The `prompt` field is a ready-made, professional instruction block covering **three modes**:
+MODE A (chatbots that can execute code — call the REST API directly), MODE B (TEXT-ONLY
 chatbots — they print one `aclp_agent.py relay ...` command per step and the user pastes the
-JSON result back). The API key placeholder is left empty on purpose so the agent asks the user;
-pass `?api_key=aclp_live_...` to embed a real key into the returned text. Feed it to **any** LLM —
-even weak/limited ones — so it can work with this job-processing service without reading this whole
-document. The text is deliberately written as a neutral, professional API-integration guide
-(v1.4.0). The WordPress admin dashboard shows the same text with an API-key selector,
-auto-filled site URL and a copy button.
+JSON result back) and MODE C (URL-ONLY agents — they just open a URL with the command at the
+end and read the plain-text report, section 3.10). The API key placeholder is left empty on
+purpose so the agent asks the user; pass `?api_key=aclp_live_...` to embed a real key into the
+returned text. Feed it to **any** LLM — even weak/limited ones — so it can work with this
+job-processing service without reading this whole document. The text is deliberately written
+as a neutral, professional API-integration guide (v1.4.0). The WordPress admin dashboard shows
+the same text with an API-key selector, auto-filled site URL and a copy button.
 
 ### 3.3 `GET /github-integration` — repo + PAT for developer-agents (key required)
 ```json
@@ -178,6 +186,72 @@ Requires ownership by your key **or** a valid signed token. Returns binary strea
 curl or wget **without any auth header**. Use it when you cannot set custom headers, or when
 you want to hand a file to the user/another AI as a plain link. Links stay valid while the
 file exists (retention policy governs deletion).
+
+### 3.10 `GET /url/run` + `GET /url/result` — URL GATE (v2.0.0, Principle 5)
+
+For agents that say *"I cannot use APIs"* but **can open and browse a web page**: put the
+command at the end of the URL, open it, and **the opened page shows the plain-text job
+report** — no POST, no headers, no JSON parsing required. Auth = the `key` query parameter.
+
+**Submit + fetch in one page view (primary form):**
+
+```
+GET https://YOUR-SITE.com/wp-json/aclp/v1/url/run?key=aclp_live_xxx&cmd=echo%20hello&wait=15
+```
+
+The page (Content-Type `text/plain`) looks like:
+
+```
+ACLP URL GATE — job report (ACLP Bridge v2.0.0)
+--------------------------------------------------------------
+JOB:      9c1f6b2e-1d4a-4c3e-9a2f-5f8e7d6c5b4a (shell)
+STATUS:   completed
+DURATION: 812 ms
+
+RESULT:
+{
+    "exit_code": 0,
+    "stdout": "hello\n",
+    "stderr": ""
+}
+
+FILES: (none)
+```
+
+If `STATUS` is still `pending`/`running`, the page prints a ready-made RESULT URL —
+wait the suggested ~5 seconds, open it, repeat until `completed`/`failed`:
+
+```
+GET https://YOUR-SITE.com/wp-json/aclp/v1/url/result?key=aclp_live_xxx&ticket=<JOB_UID>
+```
+
+**Parameters of `/url/run`:**
+
+| param | meaning |
+|-------|---------|
+| `key` (or `api_key`) | **required** — the API key (`aclp_live_...`) |
+| `cmd` | command text, URL-encoded (spaces = `%20`, `&` = `%26`, quotes = `%22`); maps to the type's main parameter (shell→`command`, run_python→`code`, open_url/http_request→`url`); default type is `shell` |
+| `type` | non-shell job without `cmd`, e.g. `type=sysinfo`, `type=screenshot`, `type=process_list` |
+| `payload` | ONE line of URL-encoded JSON for advanced jobs, e.g. `&type=file_list&payload=%7B%22path%22%3A%22C%3A%2F%22%7D` |
+| `client` (or `client_uid`) | target node — required only when several nodes share the key (without it, the page returns a `select_node` list to re-open with) |
+| `wait` | 0-25 seconds the page keeps collecting the result (default 15) |
+| `format` | `text` (default) \| `json` — `json` returns the same object as `GET /commands/{uid}` |
+| `source` | optional free-form label (default `url-gate`) shown in the owner's history |
+
+**`/url/result` parameters:** `key` (required), `ticket` (the JOB uid; alias `job`),
+`wait` 0-25 (default 10 — the page waits for completion), `format` (`text`|`json`).
+
+**Gotchas & etiquette:**
+- Opening `/url/run` without `cmd`/`type`/`payload` prints a self-describing usage page.
+- Keep `cmd` under ~1200 characters and fully URL-encoded. Long or complex jobs belong in
+  MODE A (`POST /commands`).
+- Files produced by the job appear in the `FILES` section as signed `download_url` links —
+  open or download them in any browser, no headers needed (works great for `screenshot`).
+- Errors render as a plain-text page with `STATUS: error (<http>)`, `CODE` and `REASON`
+  (e.g. `aclp_missing_key`, `aclp_invalid_key`, `aclp_no_clients`, `aclp_select_client`).
+- The same queue/history powers all three modes — the owner sees every URL-gate job in the
+  WordPress admin like any other job.
+- Requires plugin **v2.0.0+** on the site (`/ping` → `"url_gate": true`).
 
 ## 4. Action types & payload schemas
 

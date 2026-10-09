@@ -193,3 +193,24 @@ Stage Summary:
 **Stage Summary:**
 - Release v1.4.0: https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases/tag/v1.4.0
 - مالک باید پلاگین 1.4.0 را نصب کند تا متن /agent-prompt و داشبورد عوض شود؛ سپس متن جدید را به مدل‌های ردکننده بدهد
+
+---
+## Task ID: 7 — v2.0.0 (2026-10-09)
+**Task:** دروازه URL به‌عنوان اصل اساسی ۵ (خواسته مالک: حالت سوم تعامل «دستور در انتهای URL، نتیجه در همان صفحه») + افزایش Major نسخه به درخواست مالک + سینک سه‌گانه اصل ۴ + انتشار نسخه‌دار
+
+**Work Log:**
+- چک ریموت (اصل ۳): main = e1c9bc6 (Release v1.4.0) — 0 پشت / 0 جلو
+- پلاگین (class-aclp-rest.php): دو مسیر GET جدید `/url/run` و `/url/result` + هلپرهای url_gate_auth/url_gate_text/url_gate_error/url_gate_error_from_wp_error/url_gate_cmd_payload/url_gate_usage/url_gate_report؛ خروجی text/plain مستقیم (header + exit — بدون پوشش JSON وردپرس)؛ کلید از پارامتر key/api_key (با همان ACLP_Auth::authenticate و rate-limit)؛ cmd → نگاشت خودکار به کلید اصلی payload (shell→command، run_python→code، open_url/http_request→url)؛ payload JSON یک‌خطی برای کارهای پیشرفته؛ گره مقصد با همان قواعد POST /commands (تک‌گره/یکتا-آنلاین خودکار؛ چندگره → صفحه select_node)؛ long-poll تا 25ث (پیش‌فرض 15/10)؛ گزارش JOB/STATUS/DURATION/RESULT/FILES با لینک امضاشده فایل‌ها؛ صفحه راهنمای خودکار بدون کلید؛ خطاهای انگلیسی خوانا؛ &format=json → همان command_shape؛ source پیش‌فرض url-gate؛ /ping فیلد url_gate
+- متن اصل ۴ (agent_prompt — منبع واحد): بخش 0 سه‌حالته شد (+ MODE C = فقط بازکردن URL)؛ بخش کامل «MODE C — URL-ONLY clients» با الگوی آدرس و قواعد URL-encode و سقف ~1200 کاراکتر؛ «both modes» → «all modes»؛ Rules پوشش MODE C؛ بلوک README با sync_prompt_readme.py بازتولید شد (طول بلوک 10143 — regex اسکریپت از هدر قدیمی # INSTRUCTION به # ACLP BRIDGE اصلاح شد)
+- AGENT-API.md: بخش جدید 3.10 (جدول پارامترها + نمونه آدرس/خروجی + gotchas) + یادداشت v2.0.0 + نمونه ping با url_gate + توضیح سه‌حالته در 3.2
+- readme.txt (صفحه پلاگین): Stable tag 2.0.0 + بولت سه‌حالته تعامل + Changelog 2.0.0
+- project.md: **اصل اساسی شماره ۵** با ضابطه تکمیلی (توسعه اجباری در هر تغییر آینده) + گام ۶ چک‌لیست + بخش 3.11 معماری دروازه URL + وضعیت 2.0.0 (۲۰ مسیر) + ADR 23
+- نسخه‌ها → 2.0.0 در ۴ نقطه: هدر افزونه، ACLP_VERSION، readme.txt، __VERSION__ ایجنت (ایجنت بدون تغییر رفتار — همان صف عادی)
+- مستندات دیگر: CHANGELOG 2.0.0؛ README (بج، توضیح اصل ۵، سطر جدول قابلیت‌ها، بخش «حالت C» در شروع سریع، ZIPها، نقشه راه v2.1-v2.3، پنج اصل، عیب‌یابی 404 دروازه)؛ USER-GUIDE بخش ۱۵ (راهنمای فارسی دروازه URL)؛ agent/README.fa.md (نسخه 2.0.0)؛ SECURITY.md (ریسک کلید در URL)؛ brainstorm #۷
+- تست‌ها: php -l (باینری استاتیک) روی هر دو فایل تغییر یافته ✓؛ py_compile ایجنت ✓؛ اسکن عبارات هشداردهنده در متن اصل ۴: صفر مورد ✓
+- build_release: دو ZIP 2.0.0 → commit/push → Release v2.0.0 → کپی به download/
+
+**Stage Summary:**
+- Release v2.0.0: https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases/tag/v2.0.0
+- **گام الزامی مالک:** نصب ZIP پلاگین 2.0.0 روی سایت — دروازه URL و متن MODE C فقط بعد از آپدیت افزونه فعال می‌شود (`/ping` باید `url_gate: true` بدهد)
+- قاعده ماندگار جدید برای ایجنت‌های توسعه‌دهنده آینده: هر قابلیت جدید باید از دروازه URL هم قابل استفاده باشد (اصل ۵)
