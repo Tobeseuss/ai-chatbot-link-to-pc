@@ -1,6 +1,6 @@
 # project.md — سند پروژه AI Chatbot Link to PC
 
-> **این سند برای ایجنت‌های هوش مصنوعی توسعه‌دهنده در آینده نوشته شده است.** قبل از هر تغییری، این فایل را کامل بخوانید. آخرین بروزرسانی: 2026-10-09 (نسخه 1.0.0)
+> **این سند برای ایجنت‌های هوش مصنوعی توسعه‌دهنده در آینده نوشته شده است.** قبل از هر تغییری، این فایل را کامل بخوانید. آخرین بروزرسانی: 2026-10-09 (نسخه 1.1.0)
 
 ---
 
@@ -29,18 +29,33 @@
 ### اصل اساسی شماره ۳ — انتشار نسخه‌دار
 بعد از هر تغییری، تغییرات باید در ریپو کامیت و پوش شوند و نسخه جدید پلاگین به همراه نسخه جدید برنامه ایجنت (که کاربر اجرا می‌کند) با رعایت اصول ورژن‌بندی، به صورت فایل ZIP در بخش Releases در دسترس قرار گیرد.
 
+**ضابطه تکمیلی اصل ۳ (خواسته صریح مالک):**
+- **قبل از هر پوش** حتماً `git fetch origin` بزنید و `git log origin/main` را بررسی کنید؛ اگر کامیت جدیدی (از کاربر یا ایجنت‌های دیگر) وجود دارد، به کاربر **گزارش دهید** و بپرسید با تغییرات شما ادغام شود یا نه؛ سپس rebase/merge روی آخرین origin/main انجام دهید.
+- **ایجنت‌های هوش مصنوعی متصل به پل** می‌توانند خودشان این چرخه را انجام دهند: ریپو و PAT از تنظیمات پلاگین (WP Admin → AI-PC Link → تنظیمات → یکپارچگی گیت‌هاب) و از مسیر `GET /github-integration` قابل دریافت است. پروتکل کامل در `docs/AGENT-CONTRIBUTION.md`.
+- PAT کاربران باید **دسترسی کامل خواندن/نوشتن** به تمام بخش‌ها داشته باشد (به‌جز مواردی که گیت‌هاب ذاتاً فقط خواندن می‌دهد). اگر PAT متعلق به مالک ریپو بود → پوش مستقیم به main + انتشار Release؛ اگر متعلق به ایجنت دیگری بود → تغییرات به‌صورت commit در ریپوی اصلی ثبت شود (برای ادغام بعدی) و در صورت نداشتن دسترسی نوشتن، fork + PR ساخته شود.
+- **ذخیره ماندگار PAT مالک:** خودِ توکن به ریپو commit نمی‌شود (GitHub Push Protection حتی Base64 را رد می‌کند). محل‌ها: محیط توسعه ماندگار — `/home/z/my-project/.env` (کلید `ACLPS_GITHUB_PAT`)، `/home/z/my-project/scripts/github_pat.local`، `.ai/pat.b64` (gitignored) — + تنظیمات پلاگین. نقشه کامل و دستور بازیابی/بروزرسانی: `.ai/README.md`. اگر PAT عوض شد، همه این محل‌ها بروز شوند.
+
+### اصل اساسی شماره ۴ — متن آماده معرفی پل به ایجنت
+- فایل `docs/AGENT-API.md` با هر تغییری باید بروزرسانی و بروز بماند (مرجع کامل ایجنت‌ها).
+- در ابتدای `README.md` بخشی با نام «نحوه اعلام نحوه استفاده از پل به ایجنت هوش مصنوعی» وجود دارد که یک **متن آماده حرفه‌ای** ارائه می‌دهد؛ جای PAT و کلید API واقعی در آن **خالی** است تا خود ایجنت از کاربر سوال کند.
+- همین متن باید **در صفحه اصلی خود پلاگین (داشبورد)** هم وجود داشته باشد (با دکمه کپی) و با هر تغییری هماهنگ بروز شود.
+- منبع واحد حقیقتِ این متن: تابع `ACLP_Utils::agent_prompt()` در `includes/class-aclp-utils.php` (رندر داشبورد + `GET /agent-prompt`). هنگام هر تغییر، همین تابع + بلوک README را با هم بروز کنید.
+- متن باید بسیار حرفه‌ای و ساده باشد تا **حتی ضعیف‌ترین و محدودترین مدل‌های هوش مصنوعی** بتوانند به‌راحتی ارتباط را برقرار کنند (ساختار شماره‌دار، دستورهای آماده curl/HTTP، لیست کامل اکشن‌ها، قواعد واضح).
+
 **چک‌لیست اجباری هر تغییر** (به ترتیب):
 
-1. کد را تغییر بده
-2. شماره نسخه را در این ۴ جا بروز کن: هدر `ai-chatbot-link-to-pc.php` (Version)، ثابت `ACLP_VERSION`، متغیر `__VERSION__` در `agent/aclp_agent.py`، سند CHANGELOG.md
-3. `project.md` را بروز کن (بخش وضعیت و تصمیمات)
-4. `worklog.md` را با یک بخش جدید بروز کن
-5. `brainstorm.md` را با خلاصه گفتگو بروز کن
-6. `README.md` و مستندات `docs/` را هماهنگ با تغییرات بروز کن
-7. `CHANGELOG.md` را بروز کن
-8. با `python3 tools/build_release.py` بسته‌های ZIP بساز
-9. کامیت (پیام استاندارد: `feat|fix|docs|refactor|chore: خلاصه`)، پوش به main
-10. در GitHub با تگ `vX.Y.Z` ریلیز بساز و دو فایل ZIP را ضمیمه کن
+1. `git fetch origin` + بررسی کامیت‌های جدید ریموت و گزارش به کاربر (ضابطه تکمیلی اصل ۳)
+2. کد را تغییر بده
+3. شماره نسخه را در این ۴ جا بروز کن: هدر `ai-chatbot-link-to-pc.php` (Version)، ثابت `ACLP_VERSION`، متغیر `__VERSION__` در `agent/aclp_agent.py`، سند CHANGELOG.md
+4. `docs/AGENT-API.md` را بروز کن (اصل ۴)
+5. متن معرفی پل به ایجنت را در دو جا هماهنگ بروز کن: `ACLP_Utils::agent_prompt()` + بلوک ابتدای README.md (اصل ۴)
+6. `project.md` را بروز کن (بخش وضعیت و تصمیمات)
+7. `worklog.md` را با یک بخش جدید بروز کن
+8. `brainstorm.md` را با خلاصه گفتگو بروز کن
+9. `README.md` و بقیه مستندات `docs/` را هماهنگ با تغییرات بروز کن
+10. با `python3 tools/build_release.py` بسته‌های ZIP بساز (باید بدون خطا و با نسخه هماهنگ تمام شود)
+11. کامیت (پیام استاندارد: `feat|fix|docs|refactor|chore: خلاصه`)، پوش به main
+12. در GitHub با تگ `vX.Y.Z` ریلیز بساز و دو فایل ZIP را ضمیمه کن
 
 ## 3. معماری فنی
 
@@ -75,30 +90,50 @@
 - هدر `X-ACLP-Client-UID` برای مسیرهای ایجنت
 - محدودیت نرخ با transient در هر دقیقه برای هر کلید
 - هر دو طرف (چت‌بات و ایجنت) از همان کلید استفاده می‌کنند؛ مالکیت با key_id کنترل می‌شود
+- **fallback پروتکل:** پلاگین با هر دو HTTP و HTTPS کار می‌کند (مسیر REST تحت تأثیر scheme نیست). `/ping` فیلدهای `http_fallback_url` و `allow_http_fallback` را برمی‌گرداند؛ ایجنت v1.1+ هنگام خطای SSL/اتصال خودکار به HTTP سوییچ می‌کند (قابل غیرفعال‌سازی با `allow_http_fallback: false` در config.json ایجنت).
 
-### 3.4 رجیستری اکشن‌های ایجنت
+### 3.4 یکپارچگی گیت‌هاب (v1.1+)
 
-در `agent/aclp_agent.py` دکوراتور `@handler("نام")` هر اکشن را ثبت می‌کند. اکشن‌های فعلی: `ping, sysinfo, shell, run_python, process_list, kill_process, file_read, file_write, file_list, file_delete, file_mkdir, file_move, upload_file, file_download, open_url, http_request, screenshot, install`
+- تنظیمات: `github_repo_url` (پیش‌فرض ریپوی رسمی) و `github_pat` (پیش‌فرض خالی) در option `aclp_settings`؛ ویرایش از WP Admin → تنظیمات → «یکپارچگی گیت‌هاب»
+- `GET /github-integration` (نیازمند کلید API): ریپو + PAT + مستندات گردش کار را به ایجنت‌های توسعه‌دهنده می‌دهد؛ اگر PAT خالی باشد `pat_set:false` برمی‌گردد و ایجنت باید از کاربر بپرسد
+- پروتکل انتشار توسط ایجنت‌ها: `docs/AGENT-CONTRIBUTION.md`
+- ذخیره ماندگار PAT مالک: محیط توسعه (`.env` + `scripts/github_pat.local` + `.ai/pat.b64` gitignored) + تنظیمات پلاگین — نقشه در `.ai/README.md`
+
+### 3.5 ارتقای سطح دسترسی اختیاری در ایجنت (v1.1+)
+
+- **هیچ اکشنی به ارتقا وابسته نیست**؛ همه قابلیت‌ها با دسترسی عادی کار می‌کنند و اجباری وجود ندارد.
+- توابع: `is_elevated()` (root در یونیکس / IsUserAnAdmin در ویندوز)، `Agent.run_privileged()`:
+  - لینوکس: `sudo -S -p '' -H bash -lc <cmd>` با رمز از `elevation_password` (stdin)؛ اگر رمز نبود و sudo NOPASSWD بود خودکار موفق؛ سپس fallback به `su -c`؛ در نهایت ACLPError شفاف.
+  - ویندوز: PowerShell `Start-Process -Verb RunAs -Wait` با `-EncodedCommand` (حل کامل مشکل کوتیشن)؛ پنجره UAC روی صفحه کاربر ظاهر می‌شود؛ خروجی/خطا در فایل‌های temp جمع و بعد پاک می‌شوند.
+- اکشن‌های جدید: `privilege_status` (وضعیت دسترسی و روش‌های ممکن)، `privilege_run` (اجرای یک دستور سطح بالا)؛ `shell` پرچم `elevated:true` دارد؛ `install` هنگام خطای مجوز فقط اگر `auto_elevate` یا رمز پیکربندی شده باشد دوباره با ارتقا تلاش می‌کند.
+- کلیدهای کانفیگ: `elevation_user`, `elevation_password`, `auto_elevate` (هر سه اختیاری؛ setup wizard مرحله «اختیاری» دارد؛ config.json روی لینوکس 0600 است).
+
+### 3.6 رجیستری اکشن‌های ایجنت
+
+در `agent/aclp_agent.py` دکوراتور `@handler("نام")` هر اکشن را ثبت می‌کند. اکشن‌های فعلی (۲۰): `ping, sysinfo, shell, run_python, process_list, kill_process, file_read, file_write, file_list, file_delete, file_mkdir, file_move, upload_file, file_download, open_url, http_request, screenshot, install, privilege_status, privilege_run`
 
 هر هندلر امضای `fn(agent, payload) -> (result_dict, [produced_file_paths])` دارد. فایل‌های خروجی خودکار آپلود و به نتیجه پیوست می‌شوند.
 
 **افزودن اکشن جدید:** فقط یک تابع با دکوراتور اضافه کنید + مستندات + semver مینور. جزئیات در `docs/DEVELOPER.md`.
 
-### 3.5 تنظیمات (option `aclp_settings`)
+### 3.7 تنظیمات (option `aclp_settings`)
 
-`poll_interval, online_timeout, command_timeout, history_retention_days, file_retention_days, max_log_entries, max_commands_rows, max_file_size_mb, rate_limit_per_min, max_pending_per_client, delete_data_on_uninstall`
+`poll_interval, online_timeout, command_timeout, history_retention_days, file_retention_days, max_log_entries, max_commands_rows, max_file_size_mb, rate_limit_per_min, max_pending_per_client, delete_data_on_uninstall, github_repo_url, github_pat`
 
 نگهداری خودکار در cron ساعتی `aclp_hourly_maintenance` (کلاس `ACLP_Cron`).
 
 ## 4. وضعیت فعلی
 
-**نسخه جاری: 1.0.0 (انتشار اولیه — 2026-10-09)**
+**نسخه جاری: 1.1.0 (2026-10-09)**
 
 - [x] هسته پلاگین: جداول، تنظیمات، cron نگهداری، uninstall
-- [x] REST API کامل (۱۲ مسیر) با احراز هویت کلید + نرخ
-- [x] پنل مدیریت فارسی: داشبورد، کلیدها، سیستم‌ها، تاریخچه با جزئیات کامل، تنظیمات
-- [x] ایجنت پایتون: ۱۸ اکشن، setup wizard، auto-install وابستگی، backoff، لاگ
-- [x] مستندات کامل (فارسی + مرجع API انگلیسی برای ایجنت‌ها)
+- [x] REST API کامل (۱۴ مسیر: + `/agent-prompt`، `/github-integration`) با احراز هویت کلید + نرخ
+- [x] پنل مدیریت فارسی: داشبورد (شامل متن آماده معرفی پل به ایجنت)، کلیدها، سیستم‌ها، تاریخچه با جزئیات کامل، تنظیمات (+ بخش یکپارچگی گیت‌هاب)
+- [x] ایجنت پایتون: ۲۰ اکشن، setup wizard، auto-install وابستگی، backoff، لاگ
+- [x] fallback خودکار HTTP هنگام مشکل HTTPS (ایجنت + فیلدهای ping)
+- [x] ارتقای سطح دسترسی اختیاری (sudo/su/UAC) بدون وابستگی بقیه عملکرد به آن
+- [x] یکپارچگی گیت‌هاب: PAT از پنل + `GET /github-integration` + پروتکل `docs/AGENT-CONTRIBUTION.md` + نقشه vault در `.ai/README.md`
+- [x] مستندات کامل (فارسی + مرجع API انگلیسی برای ایجنت‌ها + پروتکل مشارکت ایجنت‌ها)
 - [x] اسکریپت build و انتشار (tools/build_release.py)
 
 ## 5. تصمیمات معماری ثبت‌شده (ADR)
@@ -112,6 +147,10 @@
 | 5 | UI فارسی بدون textdomain | مخاطب فعلی کاربر فارسی‌زبان است؛ i18n در صورت نیاز آینده |
 | 6 | `wait=true` با sleep-loop حداکثر 25 ثانیه | سازگار با timeout پیش‌فرض پراکسی‌ها؛ ساده و بدون وابستگی |
 | 7 | کنسول ایجنت انگلیسی | جلوگیری از خرابی کاراکتر فارسی در ترمینال‌های قدیمی ویندوز (cp1252/cp437)؛ مستندات فارسی در docs/ |
+| 8 | fallback HTTP به‌صورت خودکار در ایجنت (نه اجبار سرور) | سایت کاربر بعضاً با HTTPS مشکل دارد؛ ساده‌ترین مسیر: ایجنت روی خطای SSL/اتصال scheme را عوض کند؛ ریسک شنود پذیرفته شده چون مالک صریحاً خواسته |
+| 9 | PAT فقط در محیط توسعه/پنل ذخیره می‌شود، نه ریپو | GitHub Push Protection توکن را حتی Base64 رد می‌کند (GH013 تجربه‌شده)؛ محیط توسعه ماندگار است و تنظیمات پلاگین روی سایت کاربر؛ نقشه محل‌ها در `.ai/README.md` |
+| 10 | ارتقای دسترسی فقط «به‌درخواست/اختیاری» | خواسته مالک: هیچ عملکردی نباید وابسته به دسترسی سطح بالا باشد؛ ارتقا فقط با `elevated:true`/`privilege_run` یا `auto_elevate` |
+| 11 | ویندوز ارتقا با PowerShell -EncodedCommand | حذف کامل مشکل کوتیشن/فارسی در پاس دادن فرمان به Start-Process RunAs |
 
 ## 6. قرارداد نسخه‌بندی (Semver)
 
@@ -131,7 +170,7 @@ ai-chatbot-link-to-pc/
 │   ├── ai-chatbot-link-to-pc.php   ← فایل اصلی
 │   ├── uninstall.php
 │   ├── readme.txt
-│   ├── includes/                   ← هسته (۱۱ کلاس)
+│   ├── includes/                   ← هسته (۱۱ کلاس؛ agent_prompt در class-aclp-utils.php)
 │   └── admin/                      ← پنل مدیریت + css/js
 ├── agent/                          ← ایجنت پایتون (این پوشه ZIP می‌شود)
 │   ├── aclp_agent.py
@@ -139,7 +178,8 @@ ai-chatbot-link-to-pc/
 │   ├── config.example.json
 │   ├── start_agent.bat / .sh
 │   └── README.fa.md
-├── docs/                           ← USER-GUIDE.fa.md, AGENT-API.md, DEVELOPER.md
+├── .ai/                            ← نقشه vault PAT: README بازیابی (خود توکن gitignored است)
+├── docs/                           ← USER-GUIDE.fa.md, AGENT-API.md, AGENT-CONTRIBUTION.md, DEVELOPER.md
 ├── tools/build_release.py          ← اسکریپت ساخت ZIP
 ├── README.md, project.md, brainstorm.md, worklog.md,
 ├── CHANGELOG.md, SECURITY.md, LICENSE, .gitignore

@@ -3,7 +3,20 @@
 > **Persian note (برای کاربر):** این سند عمداً به انگلیسی نوشته شده است، چون مخاطب اصلی آن چت‌بات‌ها و ایجنت‌های هوش مصنوعی هستند که مستندات انگلیسی را قابل‌اعتمادتر پارس می‌کنند. راهنمای فارسی کاربر: `docs/USER-GUIDE.fa.md`. این فایل را در system prompt یا ابزار knowledge چت‌بات خود قرار دهید تا بداند چگونه با سیستم کاربر تعامل کند.
 
 Base URL: `https://YOUR-SITE.com/wp-json/aclp/v1`
-Plugin version: 1.0.0 · API namespace: `aclp/v1`
+Plugin version: 1.1.0 · API namespace: `aclp/v1`
+
+> **v1.1.0 highlights:** automatic HTTP fallback when HTTPS fails · new public `GET /agent-prompt`
+> (feed its `prompt` field to any LLM to onboard it instantly) · new `GET /github-integration`
+> (repo + PAT for developer-agents, see `docs/AGENT-CONTRIBUTION.md`) · new agent actions
+> `privilege_status` / `privilege_run` and `shell` payload flag `"elevated": true`.
+
+## 0. Protocol fallback — HTTP when HTTPS is broken
+
+The site serves this API over **both** HTTPS and HTTP. If your HTTPS connection fails with an SSL
+or connection error, retry the same request with the `http://` scheme — nothing else changes.
+`GET /ping` returns `"allow_http_fallback": true` and a ready-made `"http_fallback_url"`.
+The bundled Python agent does this automatically (disable in its config.json with
+`"allow_http_fallback": false`).
 
 ---
 
@@ -35,9 +48,35 @@ Rate limit: default 240 requests/minute per key → HTTP 429 when exceeded.
 ## 3. Endpoints
 
 ### 3.1 `GET /ping` — connectivity + auth check
-Response: `{"ok":true,"version":"1.0.0","server_time":"...","site":"...","site_url":"..."}`
+Response:
+```json
+{"ok":true,"version":"1.1.0","server_time":"...","site":"...","site_url":"...",
+ "http_fallback_url":"http://YOUR-SITE.com/wp-json/aclp/v1","allow_http_fallback":true,
+ "docs_url":".../docs/AGENT-API.md"}
+```
 
-### 3.2 `GET /clients` — list machines bound to this key
+### 3.2 `GET /agent-prompt` — public onboarding text for AI agents (no key needed)
+Returns `{"ok":true,"version":"...","usage":"...","docs_url":"...","repo_url":"...","prompt":"..."}`.
+The `prompt` field is a ready-made, professional instruction block (API key placeholder left
+empty on purpose so the agent asks the user). Feed it to **any** LLM — even weak/limited ones —
+so it can drive the PC through this bridge without reading this whole document. WordPress admin
+dashboard shows the same text with a copy button.
+
+### 3.3 `GET /github-integration` — repo + PAT for developer-agents (key required)
+```json
+{"ok":true,"repo_url":"https://github.com/Tobeseuss/ai-chatbot-link-to-pc",
+ "pat":"github_pat_...","pat_set":true,
+ "pat_required_scopes":"Fine-grained PAT with full read/write ...",
+ "workflow_doc":".../docs/AGENT-CONTRIBUTION.md",
+ "note":"PAT available. Follow workflow_doc step by step. ..."}
+```
+Use this when the **user asks you to extend or update the project itself**: clone the repo,
+follow the workflow doc (check remote commits first, bump versions, update docs, build ZIPs,
+push — owner PAT → publish Release; non-owner PAT → commit to main or fork+PR).
+If `pat_set` is `false` (empty `pat`), **ask the user** to paste their GitHub PAT in
+*WordPress admin → AI-PC Link → تنظیمات → یکپارچگی گیت‌هاب*. Never guess tokens.
+
+### 3.4 `GET /clients` — list machines bound to this key
 ```json
 {"ok":true,"clients":[
   {"client_uid":"...","name":"my-laptop","os":"Windows 11","hostname":"LAPTOP",
@@ -46,7 +85,7 @@ Response: `{"ok":true,"version":"1.0.0","server_time":"...","site":"...","site_u
 ```
 Pick a `client_uid` from here when multiple machines are connected.
 
-### 3.3 `POST /commands` — send a command to a machine
+### 3.5 `POST /commands` — send a command to a machine
 Request body:
 ```json
 {
@@ -70,7 +109,7 @@ Immediate response (no wait): `{"ok":true,"commands":[{"command_uid":"...","clie
 
 Wait-mode response = full command object (same as `GET /commands/{uid}`).
 
-### 3.4 `GET /commands/{command_uid}` — fetch status / result
+### 3.6 `GET /commands/{command_uid}` — fetch status / result
 ```json
 {
   "command_uid":"...","type":"shell","status":"completed",
@@ -83,23 +122,23 @@ Wait-mode response = full command object (same as `GET /commands/{uid}`).
 }
 ```
 
-### 3.5 `GET /commands?limit=20` — recent commands of this key
+### 3.7 `GET /commands?limit=20` — recent commands of this key
 
-### 3.6 `POST /files` (multipart) — upload a file to deliver **to the PC**
+### 3.8 `POST /files` (multipart) — upload a file to deliver **to the PC**
 Form fields: `file` (binary), optional `command_uid`.
 Response: `{"ok":true,"file_id":9,"filename":"setup.zip","size":1048576,"url":"https://site/wp-json/aclp/v1/files/9"}`
 Then send a `file_download` command referencing that `file_id`.
 
-### 3.7 `GET /files/{file_id}` — download a file produced by the PC
+### 3.9 `GET /files/{file_id}` — download a file produced by the PC
 Requires ownership by your key. Returns binary stream with `Content-Disposition: attachment`.
 
 ## 4. Action types & payload schemas
 
 | type | payload | result (summary) |
 |------|---------|------------------|
-| `ping` | `{}` | `{"pong":true,"time":"...","agent_version":"1.0.0"}` |
+| `ping` | `{}` | `{"pong":true,"time":"...","agent_version":"1.1.0"}` |
 | `sysinfo` | `{}` | OS, hostname, CPU, RAM, disk, python, agent version |
-| `shell` | `{"command":"<any shell command>","timeout":300}` | `{"exit_code":int,"stdout":str,"stderr":str}` — Windows: cmd (`shell=True`), Linux: `/bin/sh`. Any command is allowed (no restrictions by design). |
+| `shell` | `{"command":"<any shell command>","timeout":300,"elevated":false}` | `{"exit_code":int,"stdout":str,"stderr":str}` — Windows: cmd (`shell=True`), Linux: `/bin/sh`. Any command is allowed (no restrictions by design). With `"elevated": true` the command is retried/run with admin/root privileges when the user configured elevation (see `privilege_status`). |
 | `run_python` | `{"code":"print('hi')","timeout":120}` | stdout/stderr of the temporary script |
 | `process_list` | `{}` | `{"count":N,"processes":[{pid,name,user,memory_mb}...]}` (needs psutil for structured output; else raw tasklist/ps text in `.raw`) |
 | `kill_process` | `{"pid":1234}` or `{"name":"chrome.exe"}` | `{"terminated":[pids]}` |
@@ -114,7 +153,9 @@ Requires ownership by your key. Returns binary stream with `Content-Disposition:
 | `open_url` | `{"url":"https://example.com"}` | opens the default browser on the PC |
 | `http_request` | `{"url":"https://api.site/v1","method":"GET","headers":{},"body":null,"max_bytes":2000000}` | `{"status":200,"headers":{...},"body":"<text>","truncated":bool}` — lets you browse the web through the PC's network |
 | `screenshot` | `{}` | PC uploads PNG → result includes `files:[{file_id,url}]` (requires pyautogui on the PC) |
-| `install` | `{"packages":["vlc"],"manager":"auto","timeout":1800}` | shell output of winget/choco (Windows) or apt/dnf/pacman (Linux) / pip |
+| `install` | `{"packages":["vlc"],"manager":"auto","timeout":1800}` | shell output of winget/choco (Windows) or apt/dnf/pacman (Linux) / pip. On permission errors it retries elevated **only** if the user configured elevation credentials or `auto_elevate`. |
+| `privilege_status` | `{}` | `{"elevated":bool,"platform":"...","auto_elevate":bool,"credentials_configured":bool,"sudo_available":bool,"method":"..."}` — check BEFORE running admin/root commands; elevation is optional and everything else works without it |
+| `privilege_run` | `{"command":"apt-get install -y htop","timeout":600}` | same shape as `shell` result, executed with admin/root rights: Linux `sudo -S`/`su -c` with user-configured password (or NOPASSWD sudo); Windows shows a UAC prompt the user must accept |
 
 **Unknown `type`** → command completes as `failed` with error `Unknown action type: ...`. Check `GET /ping`'s `version` and this doc after updates.
 
@@ -167,11 +208,11 @@ Provide this tool to your chatbot so it can drive the PC:
   "type": "function",
   "function": {
     "name": "pc_control",
-    "description": "Execute an action on the user's PC through ACLP. Actions: shell (run any command), file_read/file_write/file_list/file_delete/file_mkdir/file_move, upload_file (from PC), file_download (to PC, needs file_id from POST /files upload), open_url, http_request, screenshot, sysinfo, process_list, kill_process, install, run_python, ping.",
+    "description": "Execute an action on the user's PC through ACLP. Actions: shell (run any command; optional elevated=true for admin/root), privilege_status, privilege_run (admin/root run), file_read/file_write/file_list/file_delete/file_mkdir/file_move, upload_file (from PC), file_download (to PC, needs file_id from POST /files upload), open_url, http_request, screenshot, sysinfo, process_list, kill_process, install, run_python, ping.",
     "parameters": {
       "type": "object",
       "properties": {
-        "type": {"type": "string", "enum": ["shell","file_read","file_write","file_list","file_delete","file_mkdir","file_move","upload_file","file_download","open_url","http_request","screenshot","sysinfo","process_list","kill_process","install","run_python","ping"]},
+        "type": {"type": "string", "enum": ["shell","privilege_status","privilege_run","file_read","file_write","file_list","file_delete","file_mkdir","file_move","upload_file","file_download","open_url","http_request","screenshot","sysinfo","process_list","kill_process","install","run_python","ping"]},
         "payload": {"type": "object", "description": "Action parameters, e.g. {\"command\":\"ls -la\"} for shell; {\"path\":\"/tmp/x\"} for file ops"},
         "client_uid": {"type": "string", "description": "Target machine; omit if only one machine is connected"}
       },
@@ -223,3 +264,5 @@ Errors are returned as `{"code":"...","message":"<Persian human message>","data"
 - File results older than the retention period return HTTP 410 — re-run `upload_file` if needed.
 - Timestamps are UTC (`Y-m-d H:i:s`).
 - Every action is logged server-side (command, payload, result, files, duration) and visible to the owner in the WordPress admin — act accordingly.
+- **Elevation is opt-in:** if `privilege_run` / `elevated:true` fails with an elevation error, tell the user how to configure it (Linux: `elevation_user`/`elevation_password` in config.json; Windows: accept the UAC prompt) — or just continue without it, since normal actions never require admin rights.
+- **Developer-agents:** to update the project itself read `GET /github-integration` then `docs/AGENT-CONTRIBUTION.md` (check remote commits before pushing; report them to the user).

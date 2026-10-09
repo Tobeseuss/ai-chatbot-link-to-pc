@@ -12,7 +12,7 @@
 ai-chatbot-link-to-pc.php      ← بوت‌استرپ: ثابت‌ها، require ها، هوک‌های global
 includes/
   class-aclp-settings.php      ← option aclp_settings + defaults
-  class-aclp-utils.php         ← زمان UTC، uid، برچسب‌های فارسی، مسیر storage
+  class-aclp-utils.php         ← زمان UTC، uid، برچسب‌های فارسی، مسیر storage، **agent_prompt()** (متن آماده اصل ۴)
   class-aclp-activator.php     ← dbDelta جداول + cron
   class-aclp-api-keys.php      ← CRUD کلید (هش SHA-256)
   class-aclp-clients.php       ← CRUD کلاینت + register/upsert
@@ -21,7 +21,7 @@ includes/
   class-aclp-logs.php          ← ACLP_Logger::add + query
   class-aclp-cron.php          ← نگهداری ساعتی
   class-aclp-auth.php          ← استخراج/اعتبارسنجی کلید + نرخ + کلاینت
-  class-aclp-rest.php          ← ثبت ۱۲ مسیر + هندلرها + body() + command_shape()
+  class-aclp-rest.php          ← ثبت ۱۴ مسیر + هندلرها + body() + command_shape()
 admin/
   class-aclp-admin.php         ← منو + admin_post هندلرها + ACLP_Admin_Notices
   class-aclp-admin-pages.php   ← رندر ۵ صفحه
@@ -52,7 +52,23 @@ def h_my_action(agent, payload):
 
 - فایل‌های خروجی (مسیرهای لیست دوم) خودکار آپلود و به نتیجه پیوست می‌شوند و بعد حذف می‌شوند
 - بعد از افزودن اکشن: به `ACLP_Utils::type_label` برچسب فارسی اضافه کن، docs/AGENT-API.md را بروز کن، نسخه مینور زیاد کن
-- کلاس `Agent` مسئول: هدرها (کلید + UID)، api() با retry سه‌باره، register (با رزرو خودکار UID در تعارض)، دانلود/آپلود فایل، حلقه اصلی با backoff
+- کلاس `Agent` مسئول: هدرها (کلید + UID)، **api() با retry چهار‌باره + سوییچ خودکار https⇄http روی خطای SSL/اتصال** (`_maybe_switch_protocol`)، register (با رزرو خودکار UID در تعارض)، دانلود/آپلود فایل، حلقه اصلی با backoff، و **ارتقای اختیاری دسترسی** (`run_privileged` → `_run_elevated_unix` با sudo -S/su، `_run_elevated_windows` با PowerShell -EncodedCommand + UAC)
+
+## ۱.۵ مسیرهای REST (نسخه 1.1.0)
+
+| مسیر | کلید | توضیح |
+|------|------|-------|
+| `GET /ping` | ✅ | نسخه + `http_fallback_url` + `allow_http_fallback` + docs_url |
+| `GET /agent-prompt` | ❌ عمومی | متن آماده معرفی پل به ایجنت (اصل ۴) |
+| `GET /github-integration` | ✅ | ریپو + PAT + مستندات گردش کار (اصل ۳) |
+| `GET /clients` | ✅ | لیست سیستم‌های کلید |
+| `POST /commands` | ✅ | ایجاد فرمان (wait/broadcast) |
+| `GET /commands` · `GET /commands/{uid}` | ✅ | لیست/جزئیات فرمان |
+| `POST /files` · `GET /files/{id}` | ✅ | آپلود به PC / دانلود از PC |
+| `POST /agent/register` · `POST /agent/heartbeat` | ✅+UID | چرخه ایجنت |
+| `GET /agent/commands/pending` | ✅+UID | برداشتن فرمان‌ها |
+| `POST /agent/commands/{uid}/status|result` | ✅+UID | گزارش وضعیت/نتیجه |
+| `POST /agent/files` | ✅+UID | آپلود فایل از PC |
 
 ## ۲. جریان داده فرمان (ref)
 
@@ -71,11 +87,12 @@ GET  /commands/{uid} → select + join client + files
 
 | موضوع | وضعیت فعلی | بهبود پیشنهادی |
 |-------|-----------|----------------|
-| انتقال | polling (پیش‌فرض ۵s) | WebSocket یا SSE در v1.1 |
-| رمزنگاری محتوا | HTTPS transport فقط | E2E با کلید عمومی در payload |
+| انتقال | polling (پیش‌فرض ۵s) | WebSocket یا SSE در v1.2 |
+| رمزنگاری محتوا | HTTPS transport فقط (HTTP فقط پشتیبان خرابی) | E2E با کلید عمومی در payload |
 | payload بزرگ | محدود به post_max_size | chunked upload |
 | لاگ‌های خام شل | در نتیجه ذخیره می‌شوند | streaming خروجی زنده |
-| یوزر sudo لینوکس | `sudo` بدون tty ممکن است خطا بدهد | مستندسازی / NOPASSWD توسط خود کاربر |
+| یوزر sudo لینوکس | `sudo -S` با رمز از config؛ بدون tty هم کار می‌کند | NOPASSWD توسط خود کاربر |
+| رمز ارتقا در config.json | متنی (0600 روی لینوکس) | keyring در نسخه‌های بعد |
 
 ## ۴. تست دستی سریع (بدون سیستم واقعی)
 
@@ -111,7 +128,10 @@ curl -sS -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application
 
 ## ۶. چک‌لیست نهایی هر PR/تغییر (خلاصه — کامل در project.md)
 
+- [ ] `git fetch` زدی و کامیت‌های ریموت را به کاربر گزارش کردی؟
 - [ ] نسخه در ۴ جا بروز شد؟
+- [ ] docs/AGENT-API.md بروز شد؟ (اصل ۴)
+- [ ] متن agent_prompt (تابع PHP) + بلوک README هماهنگ شد؟ (اصل ۴)
 - [ ] docs/ و README هماهنگ شدند؟
 - [ ] brainstorm.md + worklog.md + project.md آپدیت شدند؟
 - [ ] build گرفتی؟ ریلیز زدی؟ پوش کردی؟
