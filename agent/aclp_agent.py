@@ -8,26 +8,32 @@ Cross-platform agent (Windows / Linux) that connects the user's PC to the
 AI chatbots: shell commands, file operations, software installation,
 browser control, file transfers and more.
 
-Version : 1.2.0
+Version : 1.3.0
 License : GPL-2.0-or-later
 Repo    : https://github.com/Tobeseuss/ai-chatbot-link-to-pc
 
-Highlights:
-- Correct Persian console output: the agent forces UTF-8 (chcp 65001 on Windows) and,
-  on terminals without bidi support (legacy cmd.exe), automatically reshapes Persian
-  text (arabic-reshaper + python-bidi, auto-installed) so it never renders jumbled.
-- One-shot relay mode for TEXT-ONLY chatbots:  python aclp_agent.py relay <action> ...
-  lets a chatbot that cannot run code still control the PC — it just prints the command,
-  the user copies it into the terminal and pastes the JSON result back to the chatbot.
-- Automatic HTTP fallback: if the site's HTTPS has problems (SSL errors, connection
-  failures), the agent transparently retries over HTTP so everything keeps working.
-- Optional privilege elevation: if the running user is not administrator/root, the user
-  may provide sudo/su (Linux) credentials or accept the UAC prompt (Windows) so commands
-  that need elevation can still run. NOTHING requires elevation — every action works
-  normally with regular permissions; elevation is only used when explicitly requested
-  (payload "elevated": true / privilege_run) or when the user enabled auto_elevate.
-- Reports the controlling AI model name (config "ai_model") to the WordPress panel,
-  so the user can see per API key which AI/agent talked to which machine.
+Highlights in 1.3.0:
+- ZERO EXTERNAL DEPENDENCIES. The agent runs on a plain Python 3.8+ install
+  (standard library only — urllib replaces `requests`). Nothing is downloaded,
+  nothing is pip-installed: the folder contains everything that is needed.
+- ALL-ENGLISH interface. Persian/RTL text in legacy Windows terminals rendered
+  unpredictably, so every agent message is now pure English (AI command output
+  is still passed through unchanged, byte-safe UTF-8).
+- AUTH: the agent sends `Authorization: Bearer <key>` FIRST. Some web hosts
+  strip custom headers like `X-ACLP-Key` (which caused instant 401 exit on
+  those hosts); Bearer is a standard header and always survives. The custom
+  header is still sent too for backward compatibility.
+- CRASH-PROOF: any fatal error is printed, written to aclp_agent.log and the
+  window STAYS OPEN ("Press Enter to close") so double-clicked launchers no
+  longer vanish before the reason can be read.
+- CHAT MODE: `python aclp_agent.py chat` lets the user chat directly with the
+  AI/LLM(s) connected to the same API key, send messages and files. Files are
+  uploaded to the WordPress site and the AI receives a direct download link,
+  so even AI front-ends that cannot upload files themselves still get them.
+- One-shot relay mode for TEXT-ONLY chatbots: python aclp_agent.py relay ...
+- Automatic HTTP fallback: if HTTPS fails (SSL/connection), the agent retries
+  over HTTP transparently.
+- Optional privilege elevation (sudo/su/UAC). Nothing requires elevation.
 """
 
 import base64
@@ -37,27 +43,33 @@ import os
 import shlex
 import shutil
 import socket
+import ssl
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import traceback
+import urllib.error
+import urllib.parse
+import urllib.request
 import uuid
 import webbrowser
 
-__VERSION__ = "1.2.0"
+__VERSION__ = "1.3.0"
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aclp_agent.log")
 MAX_OUTPUT_CHARS = 400_000
 MAX_FILE_READ_BYTES = 8 * 1024 * 1024  # 8 MB per file_read call
+UA = f"ACLP-Agent/{__VERSION__}"
 
 
 # ---------------------------------------------------------------------------
-# Console bootstrap: UTF-8 everywhere + correct Persian (RTL) rendering.
+# Console bootstrap: UTF-8 everywhere (agent text is English; command OUTPUT
+# may contain any language and must never crash the console).
 # ---------------------------------------------------------------------------
 def _console_setup():
-    """Force UTF-8 I/O so Persian text is never mangled by legacy codepages."""
     for stream in (sys.stdout, sys.stderr):
         try:
             stream.reconfigure(encoding="utf-8", errors="replace")
@@ -70,92 +82,23 @@ def _console_setup():
             ctypes.windll.kernel32.SetConsoleCP(65001)
         except Exception:
             pass
-        os.system("chcp 65001 >nul 2>&1")
 
 
 _console_setup()
 
-# Terminal capability detection: modern terminals (Windows Terminal, VS Code,
-# most Linux emulators) do their own bidi/shaping -> print logical text as-is.
-# Legacy Windows conhost (cmd.exe) does NOT -> pre-shape + bidi-reverse Persian.
-_TERMINAL_SHAPES_BIDI = bool(
-    os.environ.get("WT_SESSION")            # Windows Terminal
-    or os.environ.get("TERM_PROGRAM") == "vscode"
-    or os.name != "nt"                       # Linux/macOS terminals
-    or os.environ.get("ANSICON")
-)
 
-_SHAPE_LIBS_TRIED = False
-_SHAPE_OK = False
-
-
-def _ensure_shape_libs() -> bool:
-    """Best-effort install of arabic-reshaper + python-bidi (tiny, pure Python).
-    Needed only on terminals that cannot shape Persian themselves."""
-    global _SHAPE_LIBS_TRIED, _SHAPE_OK
-    if _SHAPE_LIBS_TRIED:
-        return _SHAPE_OK
-    _SHAPE_LIBS_TRIED = True
-    if _TERMINAL_SHAPES_BIDI:
-        _SHAPE_OK = True  # not needed, but "usable"
-        return True
+def out(message: str = "") -> None:
+    """Print a user-facing line (English only)."""
     try:
-        import arabic_reshaper  # noqa: F401
-        import bidi.algorithm  # noqa: F401
-        _SHAPE_OK = True
-    except ImportError:
-        try:
-            subprocess.run(
-                [sys.executable, "-m", "pip", "install", "--user", "--quiet",
-                 "arabic-reshaper", "python-bidi"],
-                check=True, capture_output=True, timeout=180,
-            )
-            import arabic_reshaper  # noqa: F401
-            import bidi.algorithm  # noqa: F401
-            _SHAPE_OK = True
-        except Exception:
-            _SHAPE_OK = False
-    return _SHAPE_OK
-
-
-def _has_rtl(text: str) -> bool:
-    return any("\u0600" <= ch <= "\u06FF" or "\uFB50" <= ch <= "\uFEFF" for ch in text)
-
-
-def fa(text: str) -> str:
-    """Prepare a (possibly Persian) string for CONSOLE display.
-    - On bidi-capable terminals: return untouched logical text.
-    - On legacy Windows conhost: reshape + bidi-reverse so it reads correctly.
-    The log file always stores the untouched logical text."""
-    if not _has_rtl(text) or _TERMINAL_SHAPES_BIDI:
-        return text
-    if not _ensure_shape_libs():
-        return text
-    try:
-        import arabic_reshaper
-        from bidi.algorithm import get_display
-        return get_display(arabic_reshaper.reshape(text))
-    except Exception:
-        return text
-
-
-def say(fa_text: str, en_text: str = "") -> None:
-    """Print a user-facing message. Persian-first; falls back to the English
-    variant when the console cannot render shaped Persian at all."""
-    if not fa_text:
-        fa_text = en_text
-    if _has_rtl(fa_text) and not _TERMINAL_SHAPES_BIDI and not _ensure_shape_libs():
-        print(en_text or fa_text, flush=True)
-        return
-    print(fa(fa_text), flush=True)
+        print(message, flush=True)
+    except UnicodeEncodeError:
+        print(message.encode("ascii", errors="replace").decode("ascii"), flush=True)
 
 
 def log(message: str) -> None:
+    """Print a timestamped line and append it to aclp_agent.log."""
     line = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {message}"
-    try:
-        print(fa(line), flush=True)
-    except Exception:
-        print(line, flush=True)
+    out(line)
     try:
         with open(LOG_FILE, "a", encoding="utf-8") as fh:
             fh.write(line + "\n")
@@ -163,33 +106,111 @@ def log(message: str) -> None:
         pass
 
 
-# ---------------------------------------------------------------------------
-# Bootstrap: make sure `requests` is available (auto-install on first run).
-# ---------------------------------------------------------------------------
-def _ensure_requests():
+def pause_before_exit() -> None:
+    """Keep the console window open on fatal errors so the user can read the
+    reason (matters when the agent was started by double-clicking the .bat).
+    Skipped automatically when stdin is not a TTY (piped/automated runs)."""
     try:
-        import requests  # noqa: F401
-        return True
-    except ImportError:
-        print("[setup] 'requests' library not found. Trying to install it...")
+        if sys.stdin is not None and sys.stdin.isatty():
+            out("")
+            out("Press Enter to close this window... ")
+            sys.stdin.readline()
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Minimal HTTP layer built ONLY on the standard library (replaces `requests`).
+# ---------------------------------------------------------------------------
+class NetworkError(Exception):
+    """Connection-level failure. kind: 'ssl' | 'timeout' | 'connection'."""
+
+    def __init__(self, kind: str, detail: str):
+        super().__init__(f"{kind}: {detail}")
+        self.kind = kind
+        self.detail = detail
+
+
+def _http_request(method: str, url: str, headers=None, data=None, timeout: float = 30):
+    """One HTTP call via urllib. Returns (status:int, headers:dict, body:bytes).
+    HTTP 4xx/5xx are RETURNED (not raised). Connection-level problems raise
+    NetworkError so the caller can trigger the HTTP fallback logic."""
+    req = urllib.request.Request(url, data=data, method=method.upper())
+    req.add_header("User-Agent", UA)
+    for k, v in (headers or {}).items():
+        req.add_header(k, v)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return int(resp.status), dict(resp.headers.items()), resp.read()
+    except urllib.error.HTTPError as exc:
         try:
-            subprocess.run(
-                [sys.executable, "-m", "pip", "install", "--user", "requests"],
-                check=True, capture_output=True, timeout=180,
-            )
-            import requests  # noqa: F401
-            print("[setup] 'requests' installed successfully.")
-            return True
-        except Exception as exc:  # pragma: no cover
-            print(f"[error] Could not install 'requests' automatically: {exc}")
-            print("        Please run:  pip install requests")
-            return False
+            body = exc.read()
+        except Exception:
+            body = b""
+        hdrs = {}
+        try:
+            hdrs = dict(exc.headers.items()) if exc.headers else {}
+        except Exception:
+            pass
+        return int(exc.code), hdrs, body
+    except (urllib.error.URLError, ssl.SSLError, ConnectionError, TimeoutError,
+            OSError, ValueError) as exc:
+        reason = getattr(exc, "reason", exc)
+        text = f"{reason}" if reason is not None else f"{exc}"
+        lowered = (text + " " + str(exc)).lower()
+        if isinstance(reason, ssl.SSLError) or isinstance(exc, ssl.SSLError) \
+                or "certificate" in lowered or "ssl" in lowered:
+            raise NetworkError("ssl", text)
+        if isinstance(exc, (TimeoutError,)) or "timed out" in lowered or "timeout" in lowered:
+            raise NetworkError("timeout", text)
+        raise NetworkError("connection", text)
 
 
-if not _ensure_requests():
-    sys.exit(1)
+def _http_download(url: str, headers, save_path: str, timeout: float = 600) -> int:
+    """Stream a URL to a file. Returns the HTTP status; raises NetworkError on
+    connection-level failures."""
+    req = urllib.request.Request(url, method="GET")
+    req.add_header("User-Agent", UA)
+    for k, v in (headers or {}).items():
+        req.add_header(k, v)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            os.makedirs(os.path.dirname(os.path.abspath(save_path)) or ".", exist_ok=True)
+            with open(save_path, "wb") as fh:
+                shutil.copyfileobj(resp, fh, 65536)
+            return int(resp.status)
+    except urllib.error.HTTPError as exc:
+        return int(exc.code)
+    except (urllib.error.URLError, ssl.SSLError, ConnectionError, TimeoutError,
+            OSError) as exc:
+        reason = getattr(exc, "reason", exc)
+        text = f"{reason}" if reason is not None else f"{exc}"
+        if isinstance(reason, ssl.SSLError) or isinstance(exc, ssl.SSLError):
+            raise NetworkError("ssl", text)
+        raise NetworkError("connection", text)
 
-import requests  # noqa: E402
+
+def _multipart(fields: dict, files: list) -> tuple:
+    """Build a multipart/form-data body. files: list of (field, filename, bytes).
+    Returns (content_type, body_bytes)."""
+    boundary = "----ACLPBoundary" + uuid.uuid4().hex
+    out_buf = bytearray()
+
+    def add(s: str):
+        out_buf.extend(s.encode("utf-8"))
+
+    for name, value in (fields or {}).items():
+        add(f"--{boundary}\r\n")
+        add(f'Content-Disposition: form-data; name="{name}"\r\n\r\n')
+        add(f"{value}\r\n")
+    for name, filename, content in (files or []):
+        add(f"--{boundary}\r\n")
+        add(f'Content-Disposition: form-data; name="{name}"; filename="{filename}"\r\n')
+        add("Content-Type: application/octet-stream\r\n\r\n")
+        out_buf.extend(content if isinstance(content, bytes) else str(content).encode("utf-8"))
+        add("\r\n")
+    add(f"--{boundary}--\r\n")
+    return f"multipart/form-data; boundary={boundary}", bytes(out_buf)
 
 
 class ACLPError(Exception):
@@ -207,11 +228,11 @@ def load_config() -> dict:
     cfg.setdefault("poll_interval", 5)
     cfg.setdefault("command_timeout", 300)
     cfg.setdefault("server_command_timeout", 300)
-    cfg.setdefault("allow_http_fallback", True)   # HTTPS خراب بود -> خودکار روی HTTP ادامه بده
-    cfg.setdefault("auto_elevate", False)         # تلاش خودکار برای دسترسی مدیر فقط با اجازه کاربر
-    cfg.setdefault("elevation_user", "")          # اختیاری: کاربر دارای دسترسی sudo/runas
-    cfg.setdefault("elevation_password", "")      # اختیاری: رمز همان کاربر (در فایل کانفیگ محلی می‌ماند)
-    cfg.setdefault("ai_model", "")                # نام هوش مصنوعی/چت‌باتی که این ایجنت را کنترل می‌کند (برای نمایش در پنل)
+    cfg.setdefault("allow_http_fallback", True)  # if HTTPS breaks -> continue on HTTP
+    cfg.setdefault("auto_elevate", False)        # auto elevation only with user consent
+    cfg.setdefault("elevation_user", "")         # optional sudo/runas user
+    cfg.setdefault("elevation_password", "")     # stays in the local config file only
+    cfg.setdefault("ai_model", "")               # name of the AI that controls this PC
     return cfg
 
 
@@ -226,27 +247,30 @@ def save_config(cfg: dict) -> None:
 
 
 def setup_wizard() -> dict:
-    """Interactive first-run setup. Fully Persian (auto-shaped for the console)."""
-    print("=" * 62)
-    print(fa("  راه‌اندازی اولیه ایجنت ACLP  /  ACLP Agent setup"))
-    print("=" * 62)
-    site = input(fa("آدرس سایت وردپرس (مثلاً https://example.com): ")).strip()
+    """Interactive first-run setup. English-only by design (v1.3.0)."""
+    out("=" * 62)
+    out("  ACLP Agent setup  (AI Chatbot Link to PC)")
+    out("=" * 62)
+    out("")
+    site = input("WordPress site URL (e.g. https://example.com): ").strip()
     if not site:
-        say("خطا: آدرس سایت الزامی است.", "[error] Site URL is required.")
-        sys.exit(1)
+        out("[error] Site URL is required.")
+        raise SystemExit(1)
     if not site.startswith(("http://", "https://")):
         site = "https://" + site
     site = site.rstrip("/")
 
-    api_key = input(fa("کلید API (ساخته‌شده در پنل وردپرس → AI-PC Link → کلیدهای API): ")).strip()
+    api_key = input("API key (from WordPress admin -> AI-PC Link -> API Keys): ").strip()
     if not api_key:
-        say("خطا: کلید API الزامی است.", "[error] API key is required.")
-        sys.exit(1)
+        out("[error] API key is required.")
+        raise SystemExit(1)
 
     default_name = socket.gethostname()
-    name = input(fa(f"نام این سیستم [{default_name}]: ")).strip() or default_name
+    name = input(f"Name of this computer [{default_name}]: ").strip() or default_name
 
-    ai_model = input(fa("نام هوش مصنوعی/چت‌باتی که این سیستم را کنترل می‌کند (اختیاری، بعداً هم قابل تغییر است): ")).strip()
+    ai_model = input(
+        "Name of the AI/chatbot that will control this PC (optional, can be changed later): "
+    ).strip()
 
     cfg = {
         "site_url": site,
@@ -258,30 +282,36 @@ def setup_wizard() -> dict:
         "ai_model": ai_model,
     }
     save_config(cfg)
-    say(f"[ok] تنظیمات ذخیره شد در: {CONFIG_FILE}", f"[ok] Config saved to {CONFIG_FILE}")
+    out(f"[ok] Config saved to: {CONFIG_FILE}")
 
     # ------------------------------------------------------------------
-    # Optional privilege elevation (اختیاری — اجباری نیست)
+    # Optional privilege elevation (NOT required — everything works without)
     # ------------------------------------------------------------------
-    print()
-    say("--- دسترسی مدیر (اختیاری) / Admin-root elevation (optional) ---")
-    say("همه قابلیت‌ها بدون این بخش هم کار می‌کنند؛ فقط اگر می‌خواهید هوش مصنوعی بتواند")
-    say("دستورات مدیریتی (administrator/root) اجرا کند، این بخش را تنظیم کنید.")
-    if input(fa("تنظیم دسترسی مدیر الان انجام شود؟ [y/N]: ")).strip().lower() in ("y", "yes"):
+    out("")
+    out("--- Administrator/root access (optional) ---")
+    out("Everything works without this step. Configure it ONLY if you want the AI")
+    out("to be able to run administrator/root commands when it asks to.")
+    try:
+        want = input("Configure admin elevation now? [y/N]: ").strip().lower() in ("y", "yes")
+    except EOFError:
+        want = False
+    if want:
         default_user = os.environ.get("USERNAME") or os.environ.get("USER", "")
-        e_user = input(fa(f"کاربر دارای دسترسی sudo/runas [{default_user}]: ")).strip() or default_user
-        e_pass = getpass.getpass(fa("رمز همان کاربر (مخفی — Enter برای رد شدن): "))
-        auto = input(fa("اگر دستوری به‌خاطر نبودن دسترسی مدیر شکست خورد، خودکار با دسترسی مدیر دوباره تلاش شود؟ [y/N]: ")).strip().lower() in ("y", "yes")
+        e_user = input(f"User with sudo/runas rights [{default_user}]: ").strip() or default_user
+        e_pass = getpass.getpass("Password of that user (hidden - Enter to skip): ")
+        auto = input("Automatically retry failed commands with elevation? [y/N]: ").strip().lower() in ("y", "yes")
         cfg["elevation_user"] = e_user
         if e_pass:
             cfg["elevation_password"] = e_pass
         cfg["auto_elevate"] = auto
         save_config(cfg)
-        say("[ok] تنظیمات دسترسی مدیر ذخیره شد (config.json روی لینوکس با سطح دسترسی 0600 محافظت می‌شود).")
+        out("[ok] Elevation settings saved (config.json is chmod 600 on Linux/macOS).")
     else:
-        say("[ok] رد شد. هر زمان خواستید مقادیر elevation_user / elevation_password / auto_elevate را در config.json اضافه کنید.")
+        out("[ok] Skipped. You can add elevation_user / elevation_password / auto_elevate")
+        out("     to config.json at any time.")
 
-    say("[ok] ایجنت الان اجرا می‌شود... (Ctrl+C برای توقف)")
+    out("")
+    out("[ok] Starting the agent now... (press Ctrl+C to stop)")
     return cfg
 
 
@@ -320,7 +350,7 @@ def _run_shell(command: str, timeout: float) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Privilege elevation (اختیاری) — Linux sudo/su + Windows UAC (runas)
+# Privilege elevation (optional) — Linux sudo/su + Windows UAC (runas).
 # Nothing in the agent REQUIRES elevation; these helpers are used only when
 # explicitly requested ("elevated": true / privilege_run) or when the user
 # enabled auto_elevate in config.json.
@@ -362,6 +392,18 @@ def _pw_bytes(password: str):
     return (password + "\n").encode("utf-8") if password else None
 
 
+def platform_system() -> str:
+    if os.name == "nt":
+        return "Windows"
+    import platform
+    return platform.system()
+
+
+def platform_release() -> str:
+    import platform
+    return platform.release()
+
+
 @handler("ping")
 def h_ping(agent, payload):
     return {"pong": True, "time": time.strftime("%Y-%m-%d %H:%M:%S"), "agent_version": __VERSION__}, []
@@ -393,20 +435,8 @@ def h_sysinfo(agent, payload):
         info["memory_available_gb"] = round(mem.available / 1024**3, 2)
         info["boot_time"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(psutil.boot_time()))
     except Exception:
-        info["memory"] = "psutil not installed (pip install psutil)"
+        info["memory"] = "psutil not installed (optional): memory info unavailable"
     return info, []
-
-
-def platform_system() -> str:
-    if os.name == "nt":
-        return "Windows"
-    import platform
-    return platform.system()
-
-
-def platform_release() -> str:
-    import platform
-    return platform.release()
 
 
 @handler("shell")
@@ -416,7 +446,7 @@ def h_shell(agent, payload):
         raise ACLPError("payload.command is required")
     timeout = float(payload.get("timeout") or agent.cfg.get("command_timeout", 300))
     if payload.get("elevated") and not is_elevated():
-        # درخواست صریح اجرای سطح بالا — فقط وقتی کاربر اعتبارها را پیکربندی کرده باشد ممکن است.
+        # explicit elevated run — possible only when the user configured credentials
         return agent.run_privileged(command, timeout), []
     return _run_shell(command, timeout), []
 
@@ -637,8 +667,10 @@ def h_http_request(agent, payload):
     timeout = float(payload.get("timeout") or 60)
     max_bytes = int(payload.get("max_bytes") or 2_000_000)
 
-    resp = requests.request(method, url, headers=headers, data=body, timeout=timeout, stream=True)
-    raw = resp.raw.read(max_bytes + 1, decode_content=True) or b""
+    data = None
+    if body is not None:
+        data = body.encode("utf-8") if isinstance(body, str) else body
+    status, rheaders, raw = _http_request(method, url, headers=headers, data=data, timeout=timeout)
     truncated = len(raw) > max_bytes
     content = raw[:max_bytes]
     try:
@@ -646,9 +678,9 @@ def h_http_request(agent, payload):
     except UnicodeDecodeError:
         text = content.decode("utf-8", errors="replace")
     return {
-        "status": resp.status_code,
-        "url": resp.url,
-        "headers": dict(list(resp.headers.items())[:30]),
+        "status": status,
+        "url": url,
+        "headers": dict(list(rheaders.items())[:30]),
         "body": text,
         "truncated": truncated,
     }, []
@@ -659,7 +691,7 @@ def h_screenshot(agent, payload):
     try:
         import pyautogui  # noqa
     except ImportError:
-        raise ACLPError("pyautogui is not installed. Run: pip install pyautogui pillow")
+        raise ACLPError("pyautogui is not installed (optional). Run: pip install pyautogui pillow")
     path = os.path.join(tempfile.gettempdir(), f"aclp_screenshot_{int(time.time())}.png")
     shot = pyautogui.screenshot()
     shot.save(path)
@@ -683,7 +715,6 @@ def h_install(agent, payload):
 
     system = platform_system()
     if manager in ("auto", "pip"):
-        # pip first when explicitly requested or nothing else fits.
         if manager == "pip":
             cmd = f'"{sys.executable}" -m pip install {" ".join(packages)}'
             return _run_shell(cmd, timeout), []
@@ -719,7 +750,7 @@ def h_install(agent, payload):
                     except ACLPError:
                         pass
                 if res.get("exit_code") != 0:
-                    # آخرین تلاش: sudo ساده (ممکن است NOPASSWD باشد)
+                    # last try: plain sudo (may be NOPASSWD)
                     res = _run_shell("sudo " + cmd, timeout)
             return res, []
         if manager == "dnf":
@@ -744,7 +775,7 @@ def h_install(agent, payload):
 
 
 # ---------------------------------------------------------------------------
-# Privilege action handlers (اختیاری — مستند در docs/AGENT-API.md)
+# Privilege action handlers (optional — documented in docs/AGENT-API.md)
 # ---------------------------------------------------------------------------
 @handler("privilege_status")
 def h_privilege_status(agent, payload):
@@ -787,7 +818,8 @@ class Agent:
         site = cfg["site_url"].rstrip("/")
         if not site.startswith(("http://", "https://")):
             site = "https://" + site
-        # کاندیدهای پایه: اگر HTTPS مشکل داشت (SSL/اتصال)، خودکار به HTTP سوییچ می‌کنیم.
+        # Base URL candidates: if HTTPS has problems (SSL/connection), we
+        # automatically switch to the next candidate (HTTP) and keep going.
         self.base_candidates = [site + "/wp-json/aclp/v1"]
         if site.startswith("https://"):
             self.base_candidates.append("http://" + site[len("https://"):] + "/wp-json/aclp/v1")
@@ -795,58 +827,80 @@ class Agent:
             self.base_candidates.append("https://" + site[len("http://"):] + "/wp-json/aclp/v1")
         self.base_index = 0
         self.base = self.base_candidates[0]
-        self.session = requests.Session()
-        self.session.headers.update({
-            "X-ACLP-Key": cfg["api_key"],
-            "X-ACLP-Client-UID": cfg["client_uid"],
-            "User-Agent": f"ACLP-Agent/{__VERSION__} ({platform_system()})",
-        })
         self.err_streak = 0
         self.registered = False
+        key = cfg["api_key"]
+        # AUTH ORDER MATTERS: `Authorization: Bearer` first because some web
+        # hosts strip unknown/custom headers (X-ACLP-Key) — Bearer is standard
+        # and always reaches WordPress. X-ACLP-Key is still sent for older
+        # plugin versions and normal hosts.
+        self.headers = {
+            "Authorization": f"Bearer {key}",
+            "X-ACLP-Key": key,
+            "X-ACLP-Client-UID": cfg["client_uid"],
+            "Accept": "application/json",
+        }
 
-    # -- protocol fallback (پشتیبانی HTTP در صورت مشکل HTTPS) ---------------
-    def _maybe_switch_protocol(self, exc) -> bool:
-        """On TLS/connection failures, permanently switch to the next base URL
+    # -- protocol fallback (HTTP support when HTTPS breaks) ------------------
+    def _maybe_switch_protocol(self, kind: str) -> bool:
+        """On SSL/connection failures, permanently switch to the next base URL
         candidate (https <-> http). Returns True when we switched."""
         if not self.cfg.get("allow_http_fallback", True):
             return False
         if self.base_index >= len(self.base_candidates) - 1:
             return False
-        import requests.exceptions as rex
-        if isinstance(exc, (rex.SSLError, rex.ConnectTimeout, rex.ConnectionError)):
+        if kind in ("ssl", "connection", "timeout"):
             self.base_index += 1
             self.base = self.base_candidates[self.base_index]
-            log(f"Connection problem ({type(exc).__name__}) — switching base URL to: {self.base}")
+            log(f"Connection problem ({kind}) — switching base URL to: {self.base}")
             return True
         return False
 
-    # -- low level ---------------------------------------------------------
-    def api(self, method: str, path: str, expect_json: bool = True, **kwargs):
+    # -- low level -----------------------------------------------------------
+    def api(self, method: str, path: str, expect_json: bool = True,
+            json_body=None, data=None, files=None, timeout: float = 30):
+        """One authenticated API call. Returns parsed JSON dict (or raw bytes
+        when expect_json=False). Never raises on HTTP 4xx/5xx — returns
+        {"ok": False, "status_code": ..., "message": ...} instead."""
         url = self.base + path
+        headers = dict(self.headers)
+        body = None
+        if files is not None:
+            ctype, body = _multipart(data or {}, files)
+            headers["Content-Type"] = ctype
+        elif json_body is not None:
+            body = json.dumps(json_body).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        elif data is not None:
+            body = urllib.parse.urlencode(data).encode("utf-8")
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
+
         attempt = 0
         while attempt < 4:
             try:
-                resp = self.session.request(method, url, timeout=kwargs.pop("timeout", 30), **kwargs)
-                if resp.status_code >= 400:
+                status, _rh, raw = _http_request(method, url, headers=headers,
+                                                 data=body, timeout=timeout)
+                if status >= 400:
+                    text = raw[:400].decode("utf-8", errors="replace")
                     try:
-                        msg = resp.json().get("message", resp.text[:300])
-                    except (ValueError, KeyError):
-                        msg = resp.text[:300]
-                    log(f"API {method} {path} -> HTTP {resp.status_code}: {msg}")
-                    return {"ok": False, "status_code": resp.status_code, "message": msg}
+                        msg = json.loads(text).get("message", text[:300])
+                    except Exception:
+                        msg = text[:300]
+                    log(f"API {method} {path} -> HTTP {status}: {msg}")
+                    return {"ok": False, "status_code": status, "message": msg}
                 if expect_json:
-                    return resp.json()
-                return resp
-            except (requests.RequestException, ValueError) as exc:
+                    return json.loads(raw.decode("utf-8", errors="replace") or "{}")
+                return raw
+            except NetworkError as exc:
                 attempt += 1
-                if self._maybe_switch_protocol(exc):
+                if self._maybe_switch_protocol(exc.kind):
                     url = self.base + path
-                    continue  # پروتکل عوض شد؛ این تلاش حساب نمی‌شود
+                    continue  # protocol changed — this attempt does not count
                 log(f"Network error on {method} {path} (attempt {attempt}/4): {exc}")
                 time.sleep(2 * attempt)
         return {"ok": False, "message": "network failure after retries"}
 
-    # -- lifecycle ---------------------------------------------------------
+    # -- lifecycle ------------------------------------------------------------
     def register(self):
         import platform
         payload = {
@@ -860,7 +914,7 @@ class Agent:
             "ai_model": self.cfg.get("ai_model", ""),
             "capabilities": sorted(HANDLERS.keys()),
         }
-        resp = self.api("POST", "/agent/register", json=payload)
+        resp = self.api("POST", "/agent/register", json_body=payload)
         if resp.get("ok"):
             self.registered = True
             self.err_streak = 0
@@ -870,30 +924,29 @@ class Agent:
                 f"Poll interval: {self.cfg['poll_interval']}s")
         else:
             if resp.get("status_code") == 409:
-                # duplicate UID under a different key → regenerate and retry once
+                # duplicate UID under a different key -> regenerate and retry once
                 log("client_uid conflict — regenerating a new UID...")
                 self.cfg["client_uid"] = str(uuid.uuid4())
-                self.session.headers["X-ACLP-Client-UID"] = self.cfg["client_uid"]
+                self.headers["X-ACLP-Client-UID"] = self.cfg["client_uid"]
                 save_config(self.cfg)
                 return self.register()
             self.registered = False
         return resp
 
-    # -- one-shot relay mode (برای چت‌بات‌های فقط-متنی) ----------------------
+    # -- one-shot relay mode (for text-only chatbots) --------------------------
     def relay(self, ctype: str, payload: dict, timeout: float = 120) -> int:
         """Submit ONE action to the bridge, execute it on this PC through the
         normal queue, then print a single JSON block with the final result.
         Designed for text-only chatbots: the chatbot prints this command, the
         user copies it into a terminal, then pastes the JSON back to the chatbot.
         Returns a process exit code."""
-        # ثبت‌نام تا client_uid معتبر باشد.
         reg = self.register()
         if not self.registered:
             log(f"ERROR: could not register with server: {reg.get('message', 'unknown')}")
             return 1
 
-        # ۱) ایجاد فرمان از طریق همان مسیری که چت‌بات‌ها استفاده می‌کنند (تاریخچه کامل می‌ماند).
-        created = self.api("POST", "/commands", json={
+        # 1) create the command through the same path chatbots use (full history)
+        created = self.api("POST", "/commands", json_body={
             "type": ctype,
             "payload": payload,
             "client_uid": self.cfg["client_uid"],
@@ -909,7 +962,7 @@ class Agent:
         target_uid = cmds[0]["command_uid"]
         log(f"Command queued: {target_uid}")
 
-        # ۲) فرمان را از صف خود بردار و اجرا کن (همان مسیر عادی اجرا + ارسال نتیجه).
+        # 2) take the command from this PC's queue and run it (normal path)
         deadline = time.time() + timeout
         done = False
         while time.time() < deadline and not done:
@@ -920,7 +973,7 @@ class Agent:
                     if cmd.get("command_uid") == target_uid:
                         done = True
                 if not done:
-                    # شاید نمونه دیگری از ایجنت (حالت poll) فرمان را برداشته باشد.
+                    # maybe another agent instance (poll mode) already took it
                     st = self.api("GET", f"/commands/{target_uid}")
                     if st.get("status") in ("completed", "failed"):
                         done = True
@@ -929,37 +982,195 @@ class Agent:
             if not done:
                 time.sleep(1)
 
-        # ۳) نتیجه نهایی را بگیر و به‌صورت یک بلوک JSON تمیز چاپ کن.
+        # 3) fetch the final result and print ONE clean JSON block
         final = self.api("GET", f"/commands/{target_uid}")
-        print()
-        print("=" * 62)
-        say("نتیجه برای کپی به چت‌بات (JSON) / Result JSON for the chatbot:")
-        print("=" * 62)
+        out()
+        out("=" * 62)
+        out("RESULT JSON (copy this back to the chatbot):")
+        out("=" * 62)
         print(json.dumps(final, ensure_ascii=False, indent=2))
         status = final.get("status")
         return 0 if status in ("completed", "failed") else 2
 
+    # -- chat mode (user <-> AI through the bridge) -----------------------------
+    def chat_loop(self) -> int:
+        """Interactive chat between the USER and the AI/LLM(s) connected to the
+        same API key. Messages and files go through the WordPress plugin, so
+        the AI receives the file as a direct download link on the site."""
+        reg = self.register()
+        if not self.registered:
+            log(f"ERROR: could not register with server: {reg.get('message', 'unknown')}")
+            return 1
+
+        out("=" * 62)
+        out(f"ACLP Chat v{__VERSION__} — connected to {self.base}")
+        out("=" * 62)
+        out("Type a message and press Enter to send it to the AI(s) that use your")
+        out("API key. Commands:")
+        out("  /file <path>   send a file from this PC (uploaded to the site; the AI")
+        out("                 gets a direct download link — no AI-side upload needed)")
+        out("  /status        show connection status")
+        out("  /help          show this help again")
+        out("  /exit          leave the chat")
+        out("")
+
+        print_lock = threading.Lock()
+        stop = threading.Event()
+        state = {"last_id": int(self.cfg.get("chat_last_id", 0))}
+
+        def fetch_history():
+            """On start, show the last few AI replies so context is not lost."""
+            replies = self.api("GET", "/chat/replies?limit=5&order=desc")
+            if replies.get("ok"):
+                msgs = list(reversed(replies.get("messages", [])))
+                if msgs:
+                    state["last_id"] = max(state["last_id"], max(m["id"] for m in msgs))
+                    with print_lock:
+                        out("--- last AI messages (history) ---")
+                        for m in msgs:
+                            _print_chat_message(m, "(history)")
+                        out("----------------------------------")
+
+        def poll_replies():
+            while not stop.is_set():
+                try:
+                    replies = self.api("GET", f"/chat/replies?since={state['last_id']}&limit=50")
+                    if replies.get("ok"):
+                        msgs = replies.get("messages", [])
+                        if msgs:
+                            state["last_id"] = max(state["last_id"], max(m["id"] for m in msgs))
+                            self.cfg["chat_last_id"] = state["last_id"]
+                            save_config(self.cfg)
+                            with print_lock:
+                                for m in msgs:
+                                    _print_chat_message(m)
+                                print("You> ", end="", flush=True)
+                except Exception as exc:
+                    log(f"chat poll error: {exc}")
+                stop.wait(2.0)
+
+        def _print_chat_message(m, tag=""):
+            source = (m.get("source") or "AI").strip() or "AI"
+            out(f"[{source}]{(' ' + tag) if tag else ''} {m.get('body', '')}")
+            for f in (m.get("files") or []):
+                out(f"    [file] {f.get('filename', 'file')} -> {f.get('url', '')}")
+
+        fetch_history()
+        worker = threading.Thread(target=poll_replies, daemon=True)
+        worker.start()
+
+        while True:
+            try:
+                line = input("You> ").strip()
+            except (EOFError, KeyboardInterrupt):
+                out("")
+                break
+            if not line:
+                continue
+            low = line.lower()
+            if low in ("/exit", "/quit", "/q"):
+                break
+            if low in ("/help", "/?"):
+                out("  /file <path>  send a file   |  /status  connection status")
+                out("  /help  help                  |  /exit    leave the chat")
+                continue
+            if low == "/status":
+                out(f"  server : {self.base}")
+                out(f"  client : {self.cfg.get('client_name', '')} (uid {self.cfg.get('client_uid', '')[:8]}...)")
+                out(f"  registered: {'yes' if self.registered else 'no'}")
+                continue
+
+            files_payload = []
+            text = line
+            if low.startswith("/file "):
+                path = os.path.expanduser(line[6:].strip().strip('"'))
+                if not os.path.isfile(path):
+                    out(f"[error] File not found: {path}")
+                    continue
+                try:
+                    with open(path, "rb") as fh:
+                        content = fh.read()
+                except OSError as exc:
+                    out(f"[error] Cannot read file: {exc}")
+                    continue
+                up = self.upload_bytes(os.path.basename(path), content)
+                if not up.get("ok"):
+                    out(f"[error] Upload failed: {up.get('message', 'unknown')}")
+                    if up.get("status_code") == 404:
+                        out("        Your WordPress plugin is older than 1.3.0 — update it.")
+                    continue
+                link = up.get("download_url") or up.get("url")
+                files_payload = [{"file_id": up.get("file_id"),
+                                  "url": link,
+                                  "filename": up.get("filename", os.path.basename(path))}]
+                text = f"[file] {up.get('filename', os.path.basename(path))} — download link attached"
+                out(f"[ok] File uploaded to the site: {link}")
+
+            send = self.api("POST", "/chat/send", json_body={"text": text, "files": files_payload})
+            if not send.get("ok"):
+                out(f"[error] Could not send message: {send.get('message', 'unknown')}")
+                if send.get("status_code") == 404:
+                    out("        Chat endpoints not found — your WordPress plugin is older")
+                    out("        than 1.3.0. Update the plugin, then restart the agent.")
+
+        stop.set()
+        out("[ok] Chat closed.")
+        return 0
+
     def download_file(self, file_id, save_path):
-        resp = self.api("GET", f"/files/{int(file_id)}", expect_json=False, stream=True, timeout=600)
-        if isinstance(resp, dict) and not resp.get("ok"):
-            raise ACLPError(f"Download failed: {resp.get('message', 'unknown error')}")
-        os.makedirs(os.path.dirname(os.path.abspath(save_path)) or ".", exist_ok=True)
-        with open(save_path, "wb") as fh:
-            for chunk in resp.iter_content(65536):
-                if chunk:
-                    fh.write(chunk)
+        status = _http_download(f"{self.base}/files/{int(file_id)}", self.headers,
+                                save_path, timeout=600)
+        if status >= 400:
+            raise ACLPError(f"Download failed with HTTP {status} (file #{file_id})")
         log(f"Downloaded file #{file_id} -> {save_path}")
 
-    # -- command execution ---------------------------------------------------
+    def upload_bytes(self, filename: str, content: bytes, command_uid: str = "") -> dict:
+        """Upload one file to the WordPress site (direction: from PC)."""
+        ctype, body = _multipart(
+            {"command_uid": command_uid, "direction": "from_pc"},
+            [("file", filename, content)],
+        )
+        headers = dict(self.headers)
+        headers["Content-Type"] = ctype
+        url = self.base + "/agent/files"
+        attempt = 0
+        while attempt < 3:
+            try:
+                status, _rh, raw = _http_request("POST", url, headers=headers, data=body, timeout=900)
+                if status >= 400:
+                    text = raw[:400].decode("utf-8", errors="replace")
+                    try:
+                        msg = json.loads(text).get("message", text[:300])
+                    except Exception:
+                        msg = text[:300]
+                    log(f"Upload -> HTTP {status}: {msg}")
+                    return {"ok": False, "status_code": status, "message": msg}
+                return json.loads(raw.decode("utf-8", errors="replace") or "{}")
+            except NetworkError as exc:
+                attempt += 1
+                if self._maybe_switch_protocol(exc.kind):
+                    url = self.base + "/agent/files"
+                    continue
+                log(f"Upload network error (attempt {attempt}/3): {exc}")
+                time.sleep(2 * attempt)
+        return {"ok": False, "message": "upload failed after retries (network)"}
+
+    def upload_file(self, command_uid: str, path: str) -> dict:
+        try:
+            with open(path, "rb") as fh:
+                return self.upload_bytes(os.path.basename(path), fh.read(), command_uid)
+        except OSError as exc:
+            return {"ok": False, "message": f"Cannot read file {path}: {exc}"}
+
+    # -- command execution ------------------------------------------------------
     def execute(self, cmd: dict):
         uid = cmd.get("command_uid", "")
         ctype = cmd.get("type", "")
         payload = cmd.get("payload") or {}
         log(f"Executing {ctype} ({uid}) ...")
-        self.api("POST", f"/agent/commands/{uid}/status", json={"status": "running"})
+        self.api("POST", f"/agent/commands/{uid}/status", json_body={"status": "running"})
 
         started = time.time()
-        produced_files = []
         try:
             fn = HANDLERS.get(ctype)
             if fn is None:
@@ -976,7 +1187,7 @@ class Agent:
                 except OSError:
                     pass
 
-            self.api("POST", f"/agent/commands/{uid}/result", json={
+            self.api("POST", f"/agent/commands/{uid}/result", json_body={
                 "status": "completed",
                 "result": result,
                 "error": None,
@@ -993,7 +1204,7 @@ class Agent:
             self._fail(uid, f"{type(exc).__name__}: {exc}", started)
 
     def _fail(self, uid, message, started):
-        self.api("POST", f"/agent/commands/{uid}/result", json={
+        self.api("POST", f"/agent/commands/{uid}/result", json_body={
             "status": "failed",
             "result": None,
             "error": message,
@@ -1002,18 +1213,7 @@ class Agent:
         })
         log(f"Failed: {message}")
 
-    def upload_file(self, command_uid: str, path: str) -> dict:
-        try:
-            with open(path, "rb") as fh:
-                return self.api(
-                    "POST", "/agent/files", timeout=900,
-                    files={"file": (os.path.basename(path), fh)},
-                    data={"command_uid": command_uid, "direction": "from_pc"},
-                )
-        except OSError as exc:
-            return {"ok": False, "message": f"Cannot read file {path}: {exc}"}
-
-    # -- privilege elevation (اختیاری) --------------------------------------
+    # -- privilege elevation (optional) ------------------------------------------
     def run_privileged(self, command: str, timeout: float) -> dict:
         """Run a shell command with admin/root privileges when possible.
         - Already elevated -> run directly.
@@ -1043,7 +1243,6 @@ class Agent:
                     return result
                 if not password and _looks_like_permission_error(result):
                     log("sudo needs a password — configure elevation_password in config.json")
-                # else: real command failure, return it as-is
                 return result
             except subprocess.TimeoutExpired:
                 raise ACLPError(f"Elevated command timed out after {int(timeout)} seconds")
@@ -1099,49 +1298,59 @@ class Agent:
         if proc.returncode == 2147942584 or b"UAC-ELEVATION-DECLINED" in (proc.stderr or b""):
             raise ACLPError("UAC elevation was declined or failed. Click Yes on the UAC prompt, or run the agent as Administrator.")
 
-        out = ""
-        err = ""
+        raw_out, raw_err = b"", b""
         try:
-            with open(out_path, "r", encoding="utf-16", errors="replace") as fh:
-                out = fh.read()
+            with open(out_path, "rb") as fh:
+                raw_out = fh.read()
         except OSError:
-            try:
-                with open(out_path, "r", encoding="utf-8", errors="replace") as fh:
-                    out = fh.read()
-            except OSError:
-                pass
+            pass
         try:
-            with open(err_path, "r", encoding="utf-16", errors="replace") as fh:
-                err = fh.read()
+            with open(err_path, "rb") as fh:
+                raw_err = fh.read()
         except OSError:
-            try:
-                with open(err_path, "r", encoding="utf-8", errors="replace") as fh:
-                    err = fh.read()
-            except OSError:
-                pass
+            pass
         for p in (out_path, err_path):
             try:
                 os.unlink(p)
             except OSError:
                 pass
+
+        def _decode(b):
+            for enc in ("utf-16", "utf-8"):
+                try:
+                    return b.decode(enc)
+                except UnicodeDecodeError:
+                    continue
+            return b.decode("utf-8", errors="replace")
+
         return {
             "exit_code": proc.returncode,
-            "stdout": out[:MAX_OUTPUT_CHARS],
-            "stderr": (err + "\n[note: elevated via UAC prompt]").strip()[:MAX_OUTPUT_CHARS],
+            "stdout": _decode(raw_out)[:MAX_OUTPUT_CHARS],
+            "stderr": (_decode(raw_err) + "\n[note: elevated via UAC prompt]").strip()[:MAX_OUTPUT_CHARS],
         }
 
-    # -- main loop -----------------------------------------------------------
+    # -- main loop ----------------------------------------------------------------
     def run(self, once: bool = False):
-        say(f"ACLP Agent v{__VERSION__} در حال اجرا روی {platform_system()}...",
-            f"ACLP Agent v{__VERSION__} starting on {platform_system()}...")
+        out(f"ACLP Agent v{__VERSION__} running on {platform_system()}...")
         resp = self.register()
         if not self.registered:
             msg = resp.get("message", "unknown error")
+            code = resp.get("status_code")
             log(f"FATAL: could not register with server: {msg}")
-            if resp.get("status_code") in (401, 403):
-                say("کلید API را در config.json بررسی کنید (پنل وردپرس → AI-PC Link → کلیدهای API).",
-                    "Check your API key in config.json.")
-            sys.exit(1)
+            out("")
+            out("=" * 62)
+            out("REGISTRATION FAILED — the agent cannot connect to the bridge.")
+            out(f"  Server answer: HTTP {code if code else '?'}: {msg}")
+            out("")
+            out("Checklist:")
+            out("  1) Site URL and API key in config.json (next to aclp_agent.py).")
+            out("  2) The API key must be ACTIVE (WordPress admin -> AI-PC Link -> API Keys).")
+            out("  3) The plugin 'AI Chatbot Link to PC' must be installed and v1.1+.")
+            out("  4) If the site uses HTTPS and this error is an SSL/connection error,")
+            out("     the agent automatically tried HTTP as well — check the site is reachable.")
+            out("  5) Full details are in aclp_agent.log (same folder).")
+            out("=" * 62)
+            raise SystemExit(1)
 
         while True:
             try:
@@ -1175,29 +1384,40 @@ class Agent:
             time.sleep(delay)
 
 
+# ---------------------------------------------------------------------------
+# CLI helpers
+# ---------------------------------------------------------------------------
 def _relay_usage() -> None:
-    print("=" * 62)
-    say("حالت Relay — مخصوص چت‌بات‌های فقط-متنی / Relay mode for text-only chatbots")
-    print("=" * 62)
-    say("یک فرمان را مستقیم روی این سیستم اجرا می‌کند و نتیجه JSON را چاپ می‌کند.")
-    say("راهنما (نمونه‌ها):")
-    print("  python aclp_agent.py relay shell dir")
-    print("  python aclp_agent.py relay shell git status")
-    print("  python aclp_agent.py relay sysinfo")
-    print("  python aclp_agent.py relay ping")
-    print('  python aclp_agent.py relay file_list --json {"path": "C:/Users"}')
-    print('  python aclp_agent.py relay shell --json {"command": "whoami", "timeout": 60}')
-    say("هر <action> یکی از ۲۰ اکشن مستند در docs/AGENT-API.md است.")
+    out("=" * 62)
+    out("Relay mode — for TEXT-ONLY chatbots")
+    out("=" * 62)
+    out("Runs ONE action on this PC and prints the JSON result.")
+    out("Usage examples:")
+    out("  python aclp_agent.py relay shell dir")
+    out("  python aclp_agent.py relay shell git status")
+    out("  python aclp_agent.py relay sysinfo")
+    out("  python aclp_agent.py relay ping")
+    out('  python aclp_agent.py relay file_list --json {"path": "C:/Users"}')
+    out('  python aclp_agent.py relay shell --json {"command": "whoami", "timeout": 60}')
+    out("<action> is any action documented in docs/AGENT-API.md.")
+
+
+def _ensure_config() -> dict:
+    cfg = load_config()
+    if not cfg.get("site_url") or not cfg.get("api_key"):
+        cfg = setup_wizard()
+        save_config(cfg)
+    return cfg
 
 
 def main():
     args = sys.argv[1:]
 
     if "--version" in args or "-v" in args:
-        print(f"ACLP Agent v{__VERSION__}")
+        out(f"ACLP Agent v{__VERSION__}")
         return
 
-    # -- relay: one-shot execution for text-only chatbots --------------------
+    # -- relay: one-shot execution for text-only chatbots ----------------------
     if args and args[0] == "relay":
         rest = args[1:]
         if not rest or rest[0] in ("-h", "--help", "help"):
@@ -1208,35 +1428,37 @@ def main():
         if "--json" in rest:
             i = rest.index("--json")
             if i + 1 >= len(rest):
-                say("خطا: بعد از --json باید یک JSON یک‌خطی بیاید.", "ERROR: --json needs a one-line JSON payload.")
-                sys.exit(1)
+                out("ERROR: --json needs a one-line JSON payload after it.")
+                raise SystemExit(1)
             try:
                 payload = json.loads(" ".join(rest[i + 1:]))
             except ValueError as exc:
-                say(f"خطا: JSON نامعتبر است: {exc}", f"ERROR: invalid JSON: {exc}")
-                sys.exit(1)
+                out(f"ERROR: invalid JSON: {exc}")
+                raise SystemExit(1)
         elif ctype == "shell" and len(rest) > 1:
             payload = {"command": " ".join(rest[1:])}
         elif len(rest) > 1:
-            say(f"خطا: برای اکشن «{ctype}» از --json استفاده کنید یا فقط نام اکشن را بنویسید.",
-                f"ERROR: use --json for action '{ctype}' or pass only the action name.")
-            sys.exit(1)
+            out(f"ERROR: use --json for action '{ctype}' or pass only the action name.")
+            raise SystemExit(1)
+        raise SystemExit(Agent(_ensure_config()).relay(ctype, payload))
 
-        cfg = load_config()
-        if not cfg.get("site_url") or not cfg.get("api_key"):
-            cfg = setup_wizard()
-            save_config(cfg)
-        sys.exit(Agent(cfg).relay(ctype, payload))
+    # -- chat: interactive user <-> AI chat through the bridge ------------------
+    if args and args[0] == "chat":
+        raise SystemExit(Agent(_ensure_config()).chat_loop())
 
     if "-h" in args or "--help" in args:
-        print(f"ACLP Agent v{__VERSION__}")
-        print("Usage:")
-        print("  python aclp_agent.py                 # run the agent (poll loop)")
-        print("  python aclp_agent.py --setup         # re-run first-time setup")
-        print("  python aclp_agent.py relay <action>  # one-shot command for text-only chatbots")
-        print("  python aclp_agent.py relay shell dir # example: run 'dir' and print JSON result")
-        print("  python aclp_agent.py --once          # run one poll cycle and exit")
-        print("  python aclp_agent.py --version")
+        out(f"ACLP Agent v{__VERSION__}")
+        out("Usage:")
+        out("  python aclp_agent.py                 # run the agent (poll loop)")
+        out("  python aclp_agent.py --setup         # re-run first-time setup")
+        out("  python aclp_agent.py chat            # chat with the AI(s) using your key,")
+        out("                                       #   send messages and files")
+        out("  python aclp_agent.py relay <action>  # one-shot command for text-only chatbots")
+        out("  python aclp_agent.py relay shell dir # example: run 'dir' and print JSON result")
+        out("  python aclp_agent.py --once          # run one poll cycle and exit")
+        out("  python aclp_agent.py --version")
+        out("")
+        out("No external dependencies are needed — plain Python 3.8+ is enough.")
         return
 
     cfg = load_config()
@@ -1244,12 +1466,34 @@ def main():
         cfg = setup_wizard()
         save_config(cfg)
 
-    try:
-        Agent(cfg).run(once="--once" in args)
-    except KeyboardInterrupt:
-        print()
-        say("[ok] ایجنت توسط کاربر متوقف شد. خداحافظ!", "[ok] Agent stopped by user. Bye!")
+    Agent(cfg).run(once="--once" in args)
 
 
 if __name__ == "__main__":
-    main()
+    _EXIT_CODE = 0
+    try:
+        main()
+    except KeyboardInterrupt:
+        out("")
+        log("Stopped by user. Bye!")
+        _EXIT_CODE = 130
+    except SystemExit as exc:
+        _EXIT_CODE = int(exc.code) if isinstance(exc.code, int) else (1 if exc.code else 0)
+    except Exception:
+        out("")
+        out("=" * 62)
+        out("UNEXPECTED FATAL ERROR — the window stays open so you can read it.")
+        out("Please copy the text below when reporting the problem.")
+        out("=" * 62)
+        traceback.print_exc()
+        try:
+            with open(LOG_FILE, "a", encoding="utf-8") as fh:
+                fh.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] FATAL\n")
+                traceback.print_exc(file=fh)
+        except OSError:
+            pass
+        _EXIT_CODE = 1
+    if _EXIT_CODE != 0:
+        pause_before_exit()
+    sys.exit(_EXIT_CODE)
+

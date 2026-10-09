@@ -1,21 +1,25 @@
 @echo off
-chcp 65001 >nul 2>nul
 title ACLP Agent - AI Chatbot Link to PC
 cd /d "%~dp0"
 
+rem Python 3.8+ is the only requirement. No pip install is needed:
+rem the agent uses ONLY the Python standard library.
+
+where py >nul 2>nul
+if not errorlevel 1 (
+    py -3 aclp_agent.py
+    goto end
+)
+
 where python >nul 2>nul
-if errorlevel 1 (
-    echo [error] Python not found. Install Python 3.9+ from https://python.org
-    echo         and check "Add Python to PATH" during installation.
-    pause
-    exit /b 1
+if not errorlevel 1 (
+    python aclp_agent.py
+    goto end
 )
 
-if not exist ".installed" (
-    echo [setup] Installing dependencies (first run only)...
-    python -m pip install --user -r requirements.txt
-    echo ok> .installed
-)
+echo [error] Python not found. Install Python 3.8+ from https://python.org
+echo         and check "Add Python to PATH" during installation.
 
-python aclp_agent.py
+:end
+echo.
 pause
