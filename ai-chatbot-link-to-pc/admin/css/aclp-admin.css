@@ -1,0 +1,104 @@
+/* AI-PC Link — استایل پنل مدیریت */
+
+.aclp-cards {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+	gap: 12px;
+	margin: 16px 0 24px;
+}
+
+.aclp-card {
+	background: #fff;
+	border: 1px solid #dcdcde;
+	border-radius: 8px;
+	padding: 16px;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+}
+
+.aclp-card-icon { font-size: 20px; }
+
+.aclp-card-value {
+	font-size: 22px;
+	font-weight: 600;
+	color: #1d2327;
+}
+
+.aclp-card-label { color: #646970; font-size: 12px; }
+
+.aclp-guide {
+	max-width: 900px;
+	background: #f0f6fc;
+	border: 1px solid #72aee6;
+	border-radius: 8px;
+	padding: 12px 20px;
+	margin-bottom: 24px;
+}
+
+.aclp-guide code {
+	direction: ltr;
+	display: inline-block;
+	background: #1d2327;
+	color: #50e6a0;
+	padding: 4px 10px;
+	border-radius: 4px;
+	font-size: 13px;
+}
+
+.aclp-badge {
+	display: inline-block;
+	padding: 2px 10px;
+	border-radius: 20px;
+	font-size: 11px;
+	font-weight: 600;
+}
+
+.aclp-badge-green  { background: #d1f2df; color: #116032; }
+.aclp-badge-red    { background: #fcf0f1; color: #b32d2e; }
+.aclp-badge-orange { background: #fcf9e8; color: #8a6116; }
+.aclp-badge-blue   { background: #e6f0fa; color: #135e96; }
+.aclp-badge-gray   { background: #f0f0f1; color: #50575e; }
+
+.aclp-table code { direction: ltr; unicode-bidi: embed; }
+
+.aclp-json {
+	direction: ltr;
+	text-align: left;
+	background: #1d2327;
+	color: #d4e7f7;
+	padding: 14px;
+	border-radius: 6px;
+	max-height: 420px;
+	overflow: auto;
+	font-size: 12px;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.aclp-filters {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	align-items: center;
+	margin: 12px 0;
+}
+
+.aclp-filters input[type="search"] { min-width: 260px; }
+
+.aclp-key-notice .aclp-key-plain {
+	direction: ltr;
+	unicode-bidi: embed;
+	font-size: 15px;
+	background: #10151a;
+	color: #7ee2a8;
+	padding: 8px 14px;
+	border-radius: 6px;
+	display: inline-block;
+	user-select: all;
+}
+
+.aclp-form-card { max-width: 760px; }
+
+.aclp-inline-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
