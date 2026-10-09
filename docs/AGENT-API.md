@@ -3,8 +3,13 @@
 > **Persian note (برای کاربر):** این سند عمداً به انگلیسی نوشته شده است، چون مخاطب اصلی آن چت‌بات‌ها و ایجنت‌های هوش مصنوعی هستند که مستندات انگلیسی را قابل‌اعتمادتر پارس می‌کنند. راهنمای فارسی کاربر: `docs/USER-GUIDE.fa.md`. این فایل را در system prompt یا ابزار knowledge چت‌بات خود قرار دهید تا بداند چگونه با سیستم کاربر تعامل کند.
 
 Base URL: `https://YOUR-SITE.com/wp-json/aclp/v1`
-Plugin version: 1.3.0 · API namespace: `aclp/v1`
+Plugin version: 1.3.1 · API namespace: `aclp/v1`
 
+> **v1.3.1 fix (agent):** users often paste this full REST Base URL into the **agent's** first-run
+> setup, which doubled the path and failed with HTTP 404 `rest_no_route`. The agent (v1.3.1+) now
+> auto-extracts the site root AND repairs an already-saved wrong `config.json` on every start.
+> When instructing a user to set up the agent, tell them to enter **only the site root**
+> (e.g. `https://example.com`) — the agent adds the REST path itself.
 > **v1.3.0 highlights:** **USER CHAT** — the user can now chat with you directly through the agent
 > program (`python aclp_agent.py chat`): four new endpoints (`POST /chat/send`, `GET /chat/pending`,
 > `POST /chat/reply`, `GET /chat/replies`) — see section 11 · **auth: `Authorization: Bearer` is now

@@ -13,7 +13,7 @@
 **این بخش با هر تغییری بروز می‌شود.** متن آماده زیر را کپی کنید و به هر هوش مصنوعی / LLM ای که می‌خواهید کنترل سیستم شما را داشته باشد بدهید؛ حتی مدل‌های ضعیف و محدود و **چت‌بات‌های فقط-متنی** (که نمی‌توانند کد اجرا کنند) هم با همین متن می‌توانند پل را راه بیندازند (حالت B). جای `API key` عمداً خالی است تا خود ایجنت از شما سوال کند و آن را از پنل وردپرس (AI-PC Link ← کلیدهای API) بگیرد — در داشبورد پلاگین می‌توانید کلید موردنظر را از منوی کشویی انتخاب کنید تا متن با همان کلید ساخته و کپی شود و آدرس سایت هم خودکار جای‌گذاری می‌شود. همین متن از مسیر `GET {آدرس‌سایت}/wp-json/aclp/v1/agent-prompt` هم در دسترس است و همیشه با نسخه افزونه هماهنگ است.
 
 ```text
-# INSTRUCTION FOR THE AI AGENT (PC bridge — ACLP v1.3.0)
+# INSTRUCTION FOR THE AI AGENT (PC bridge — ACLP v1.3.1)
 
 You are connected to the user's real computer through the "AI Chatbot Link to PC" (ACLP) bridge.
 Through it you can FULLY control the user's PC: run any shell command, read/write/move/delete any file,
@@ -39,6 +39,9 @@ Read ONLY your mode's section below, then follow it literally, step by step.
   Authorization. Content-Type: application/json for JSON bodies.
 - HTTPS is preferred. If HTTPS fails with a connection/SSL error, automatically retry the same
   request over HTTP (the server supports both).
+- NOTE about the PYTHON AGENT (for the user, not for you): when the agent's first-run setup asks
+  for "WordPress site URL", the user must enter ONLY the site root https://YOUR-SITE.com — NEVER this
+  /wp-json/... REST path. Agent v1.3.1+ also repairs a wrong entry automatically on start.
 
 =====================================================================
 ## MODE A — you can execute code (Python/curl/etc.)
@@ -192,18 +195,18 @@ shell also accepts {"elevated": true} to run with elevation when the user config
 
 ### گام ۱ — نصب افزونه در وردپرس
 
-1. از بخش [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) فایل `ai-chatbot-link-to-pc-v1.3.0.zip` را دانلود کنید.
+1. از بخش [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) فایل `ai-chatbot-link-to-pc-v1.3.1.zip` را دانلود کنید.
 2. در وردپرس: **افزونه‌ها ← افزودن ← بارگذاری افزونه** و فایل ZIP را نصب و فعال کنید.
 3. منوی جدید **«AI-PC Link»** در پیشخوان ظاهر می‌شود.
 
 ### گام ۲ — ساخت کلید API و نصب ایجنت
 
 1. **AI-PC Link ← کلیدهای API ← ساخت کلید جدید** — کلید ساخته می‌شود و از همان‌جا و در هر زمان آینده قابل مشاهده و کپی است (دکمه «کپی» کنار کلید).
-2. فایل `aclp-agent-v1.3.0.zip` را از Releases دانلود و روی سیستم خود (ویندوز/لینوکس) استخراج کنید.
+2. فایل `aclp-agent-v1.3.1.zip` را از Releases دانلود و روی سیستم خود (ویندوز/لینوکس) استخراج کنید.
 3. اجرا کنید:
    - **ویندوز:** دوبار کلیک روی `start_agent.bat`
    - **لینوکس:** `chmod +x start_agent.sh && ./start_agent.sh`
-4. آدرس سایت و کلید API را وارد کنید (اگر HTTPS مشکل داشت، آدرس را با `http://` وارد کنید یا اجازه دهید ایجنت خودش سوییچ کند). پیام `Registered as client #1` یعنی سیستم شما در پنل «سیستم‌های متصل» آنلاین است. در همین مرحله می‌توانید نام هوش مصنوعی/چت‌بات کنترل‌کننده را هم وارد کنید تا در پنل نمایش داده شود (`ai_model`).
+4. آدرس سایت و کلید API را وارد کنید — **فقط ریشه سایت** را وارد کنید (مثل `https://example.com`)، نه آدرس کامل REST `/wp-json/...` (ایجنت خودش مسیر REST را اضافه می‌کند و از v1.3.1 اگر آدرس کامل چسبانده باشد خودش اصلاحش می‌کند). اگر HTTPS مشکل داشت، آدرس را با `http://` وارد کنید یا اجازه دهید ایجنت خودش سوییچ کند. پیام `Registered as client #1` یعنی سیستم شما در پنل «سیستم‌های متصل» آنلاین است. در همین مرحله می‌توانید نام هوش مصنوعی/چت‌بات کنترل‌کننده را هم وارد کنید تا در پنل نمایش داده شود (`ai_model`).
 5. *(اختیاری)* در همان setup می‌توانید مشخصات sudo/runas را بدهید تا دستورات نیازمند دسترسی مدیر هم قابل اجرا شوند — رد کردن این مرحله هیچ محدودیتی ایجاد نمی‌کند.
 
 ### گام ۳ — اتصال چت‌بات
@@ -252,8 +255,8 @@ python aclp_agent.py relay file_list --json {"path": "C:/Users"}
 
 | فایل | کاربرد | محل |
 |------|--------|-----|
-| `ai-chatbot-link-to-pc-v1.3.0.zip` | افزونه وردپرس | [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) |
-| `aclp-agent-v1.3.0.zip` | ایجنت سیستم (پایتون — بدون هیچ وابستگی) | [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) |
+| `ai-chatbot-link-to-pc-v1.3.1.zip` | افزونه وردپرس | [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) |
+| `aclp-agent-v1.3.1.zip` | ایجنت سیستم (پایتون — بدون هیچ وابستگی) | [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) |
 
 پیش‌نیازها: وردپرس 5.8+ با PHP 7.4+ · پایتون 3.8+ روی سیستم کاربر
 
@@ -315,6 +318,7 @@ python aclp_agent.py relay file_list --json {"path": "C:/Users"}
 - [x] **v1.1.0** — fallback خودکار HTTP، ارتقای سطح دسترسی اختیاری، یکپارچگی گیت‌هاب (PAT از پنل)، متن آماده معرفی پل به ایجنت (`/agent-prompt` + داشبورد + README)
 - [x] **v1.2.0** — چت‌بات‌های فقط-متنی (حالت relay ایجنت + حالت B در متن اصل ۴)، نمایش دائمی کلیدها و PAT با دکمه کپی، صفحه «جزئیات و اتصال‌ها» هر کلید (سیستم‌های متصل، مشخصات ایجنت، هوش مصنوعی کنترل‌کننده، وضعیت استفاده دوطرفه)، انتخاب کلید + جای‌گذاری خودکار آدرس سایت در متن داشبورد، `ai_model` در ثبت‌نام ایجنت، نمایش صحیح فارسی در کنسول
 - [x] **v1.3.0** — گفتگوی مستقیم کاربر با هوش مصنوعی از طریق ایجنت (`chat` + چهار مسیر REST جدید + پنل «گفتگوها»)، احراز هویت Bearer-first (رفع قطع ارتباط روی هاست‌هایی که هدر سفارشی را حذف می‌کنند)، **رفع باگ بحرانی ذخیره‌سازی client_uid**، لینک دانلود امضاشده فایل‌ها (`download_url` بدون نیاز به هدر)، ایجنت تمام-انگلیسی + بدون وابستگی (فقط کتابخانه استاندارد) + مقاوم در برابر خطا (پنجره باز می‌ماند + لاگ کامل)
+- [x] **v1.3.1** — رفع باگ 404 ثبت‌نام ایجنت: وقتی کاربر به‌جای ریشه سایت، آدرس کامل REST (`…/wp-json/aclp/v1`) را وارد می‌کرد مسیر دوبله می‌شد (تست زنده دوم مالک)؛ ایجنت حالا هر ورودی را نرمال می‌کند و `config.json` خرابِ ذخیره‌شده را در هر استارت خودترمیم می‌کند — بدون اجرای دوباره setup + متن اصل ۴ و راهنماها صریحاً «فقط ریشه سایت» را می‌گویند
 - [ ] **v1.4** — WebSocket برای دریافت لحظه‌ای فرمان (بدون polling) + اعلان به چت‌بات با webhook
 - [ ] **v1.5** — رمزنگاری سرتاسری payload، پشتیبانی macOS، حالت تأیید دستوری اختیاری
 - [ ] **v1.6** — اجرای زمان‌بندی‌شده فرمان‌ها، گروه‌بندی سیستم‌ها، نقش‌های کاربری

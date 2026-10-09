@@ -157,3 +157,21 @@ Stage Summary:
 - دو باگ بحرانی با تست زنده پیدا و رفع شد: (۱) strip هدر سفارشی توسط هاست → Bearer-first؛ (۲) عدم ذخیره client_uid در پلاگین → FIX + پاک‌سازی آپگرید
 - ایجنت اکنون: تمام-انگلیسی، صفر وابستگی (پایتون 3.8+ خام)، مقاوم در برابر خطا (پنجره باز می‌ماند)، دارای حالت chat کاربر↔هوش مصنوعی با ارسال فایل از طریق لینک سایت
 - بعد از انتشار: کاربر باید ZIP پلاگین v1.3.0 را نصب کند (ردیف‌های خراب خودکار پاک می‌شوند؛ شامل ردیف تست «ACLP-Dev-LiveTest») و ایجنت v1.3.0 را جایگزین کند؛ سپس تست زنده نهایی با `python aclp_agent.py chat`
+
+---
+## Task ID: 5 — v1.3.1 (2026-10-09)
+**Task:** رفع باگ 404 ثبت‌نام ایجنت (گزارش تست زنده دوم مالک: ورود آدرس کامل REST در setup ⇒ مسیر دوبله ⇒ `rest_no_route`) + سینک مستندات اصل ۴ + انتشار نسخه‌دار
+
+**Work Log:**
+- چک ریموت (اصل ۳): origin/main = e94f9ca (0 پشت / 0 جلو)
+- تشخیص با تست زنده دوطرفه روی tpptc.ir: آدرس درست + کلید مالک ⇒ ثبت‌نام موفق؛ مسیر دوبله ⇒ همان 404 گزارش‌شده. فهرست مسیرهای REST ⇒ پلاگین 1.3.0 روی سایت نصب است (مسیرهای چت موجود و سالم)
+- ایجنت: `_normalize_site_url()` (۹/۹ تست واحد) + خودترمیمی config در `Agent.__init__` + پرامپت setup «site root» + چک‌لیست REGISTRATION FAILED بازنویسی + __VERSION__ → 1.3.1
+- پلاگین: خط «فقط ریشه سایت» در متن اصل ۴ (agent_prompt) + نسخه‌ها → 1.3.1 (هدر، ACLP_VERSION، readme.txt)
+- اصل ۴: بلوک README با sync_prompt_readme.py از منبع واحد بازتولید شد
+- تست: شبیه‌سازی دقیق سناریوی مالک (config دوبله + `--once`) ⇒ `[fix]` + ثبت‌نام موفق client #4 + config نرمال شد؛ py_compile ✓؛ GET /chat/pending زنده ✓
+- مستندات: CHANGELOG 1.3.1، AGENT-API، README، agent/README.fa.md، USER-GUIDE.fa.md، project.md (ADR 21)، brainstorm #۵، worklog
+- build_release v1.3.0→1.3.1 (دو ZIP) → commit/push → Release v1.3.0→v1.3.1 → کپی به download/
+
+**Stage Summary:**
+- Release v1.3.1: https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases/tag/v1.3.1
+- گام مالک: استارت ایجنت 1.3.1 (بدون setup مجدد — config خودترمیم می‌شود) و تست زنده؛ آپدیت پلاگین به 1.3.1 اختیاری ولی توصیه‌شده

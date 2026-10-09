@@ -8,9 +8,16 @@ Cross-platform agent (Windows / Linux) that connects the user's PC to the
 AI chatbots: shell commands, file operations, software installation,
 browser control, file transfers and more.
 
-Version : 1.3.0
+Version : 1.3.1
 License : GPL-2.0-or-later
 Repo    : https://github.com/Tobeseuss/ai-chatbot-link-to-pc
+
+Highlights in 1.3.1:
+- SITE URL AUTO-FIX: pasting the full REST endpoint (e.g. the
+  https://example.com/wp-json/aclp/v1 shown in the WordPress admin panel)
+  no longer breaks registration with HTTP 404. The agent extracts the site
+  root automatically — both during setup AND on every start (an existing
+  config.json with the doubled path is repaired in place, no re-setup).
 
 Highlights in 1.3.0:
 - ZERO EXTERNAL DEPENDENCIES. The agent runs on a plain Python 3.8+ install
@@ -56,7 +63,7 @@ import urllib.request
 import uuid
 import webbrowser
 
-__VERSION__ = "1.3.0"
+__VERSION__ = "1.3.1"
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aclp_agent.log")
@@ -246,19 +253,58 @@ def save_config(cfg: dict) -> None:
         pass
 
 
+def _normalize_site_url(raw: str):
+    """Extract the plain SITE ROOT from whatever URL the user pasted.
+
+    Users very often copy the full REST endpoint shown in the WordPress
+    admin panel or in the AI onboarding prompt, e.g.:
+
+        https://example.com/wp-json/aclp/v1                  (REST root)
+        https://example.com/wp-json/aclp/v1/                 (trailing /)
+        https://example.com/wp-json/aclp/v1/agent/register   (full endpoint)
+        https://example.com/wp-json/                         (generic REST)
+
+    The agent always appends "/wp-json/aclp/v1" itself, so keeping any of
+    those suffixes would double the path and every API call would fail with
+    HTTP 404 "rest_no_route" (live-tested failure report from v1.3.0).
+    Returns (clean_url, changed: bool).
+    """
+    url = (raw or "").strip().strip("\"").strip("'").rstrip("/")
+    if not url:
+        return raw, False
+    if not url.lower().startswith(("http://", "https://")):
+        url = "https://" + url
+    changed = False
+    low = url.lower()
+    # cut everything from "/wp-json" onward (handles all pasted variants)
+    pos = low.find("/wp-json")
+    if pos > 0:
+        url = url[:pos].rstrip("/")
+        low = url.lower()
+        changed = True
+    # also tolerate a pasted "/aclp/v1" without the wp-json part
+    if low.endswith("/aclp/v1"):
+        url = url[: -len("/aclp/v1")].rstrip("/")
+        changed = True
+    if not url or url.lower() in ("http://", "https://"):
+        return raw, False
+    return url, changed
+
+
 def setup_wizard() -> dict:
     """Interactive first-run setup. English-only by design (v1.3.0)."""
     out("=" * 62)
     out("  ACLP Agent setup  (AI Chatbot Link to PC)")
     out("=" * 62)
     out("")
-    site = input("WordPress site URL (e.g. https://example.com): ").strip()
+    site = input("WordPress site URL (site root, e.g. https://example.com): ").strip()
     if not site:
         out("[error] Site URL is required.")
         raise SystemExit(1)
-    if not site.startswith(("http://", "https://")):
-        site = "https://" + site
-    site = site.rstrip("/")
+    site, url_fixed = _normalize_site_url(site)
+    if url_fixed:
+        out(f"[note] Full REST endpoint detected — using the site root instead: {site}")
+        out("       (the agent adds /wp-json/aclp/v1 to this root by itself)")
 
     api_key = input("API key (from WordPress admin -> AI-PC Link -> API Keys): ").strip()
     if not api_key:
@@ -815,9 +861,17 @@ def h_privilege_run(agent, payload):
 class Agent:
     def __init__(self, cfg: dict):
         self.cfg = cfg
-        site = cfg["site_url"].rstrip("/")
-        if not site.startswith(("http://", "https://")):
-            site = "https://" + site
+        # v1.3.1 self-heal: repair configs saved by older versions where the
+        # user pasted the full REST endpoint (caused HTTP 404 on every call).
+        site, url_fixed = _normalize_site_url(cfg.get("site_url", ""))
+        if url_fixed:
+            cfg["site_url"] = site
+            try:
+                save_config(cfg)
+            except OSError:
+                pass
+            log(f"[fix] config.json site_url contained the REST path — "
+                f"normalized to: {site}")
         # Base URL candidates: if HTTPS has problems (SSL/connection), we
         # automatically switch to the next candidate (HTTP) and keep going.
         self.base_candidates = [site + "/wp-json/aclp/v1"]
@@ -1343,9 +1397,12 @@ class Agent:
             out(f"  Server answer: HTTP {code if code else '?'}: {msg}")
             out("")
             out("Checklist:")
-            out("  1) Site URL and API key in config.json (next to aclp_agent.py).")
-            out("  2) The API key must be ACTIVE (WordPress admin -> AI-PC Link -> API Keys).")
-            out("  3) The plugin 'AI Chatbot Link to PC' must be installed and v1.1+.")
+            out("  1) HTTP 404 usually means the plugin route was not found: check that")
+            out("     the plugin 'AI Chatbot Link to PC' v1.1+ is installed AND active.")
+            out("  2) The site URL in config.json must be the SITE ROOT, for example")
+            out("     https://example.com — NOT the /wp-json/... REST endpoint.")
+            out("     (Since v1.3.1 the agent repairs this automatically on start.)")
+            out("  3) The API key must be ACTIVE (WordPress admin -> AI-PC Link -> API Keys).")
             out("  4) If the site uses HTTPS and this error is an SSL/connection error,")
             out("     the agent automatically tried HTTP as well — check the site is reachable.")
             out("  5) Full details are in aclp_agent.log (same folder).")

@@ -167,6 +167,9 @@ Read ONLY your mode's section below, then follow it literally, step by step.
   Authorization. Content-Type: application/json for JSON bodies.
 - HTTPS is preferred. If HTTPS fails with a connection/SSL error, automatically retry the same
   request over HTTP (the server supports both).
+- NOTE about the PYTHON AGENT (for the user, not for you): when the agent's first-run setup asks
+  for "WordPress site URL", the user must enter ONLY the site root {SITE_URL} — NEVER this
+  /wp-json/... REST path. Agent v1.3.1+ also repairs a wrong entry automatically on start.
 
 =====================================================================
 ## MODE A — you can execute code (Python/curl/etc.)
@@ -256,7 +259,7 @@ PROMPT;
                 $prompt = str_replace(
                         array( '{VERSION}', '{SITE_URL}', '{KEY_LINE}', '{API_KEY_PH}', '{REPO_URL}' ),
                         array(
-                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '1.3.0',
+                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '1.3.1',
                                 untrailingslashit( (string) $site_url ),
                                 $key_line,
                                 $api_key_ph,
