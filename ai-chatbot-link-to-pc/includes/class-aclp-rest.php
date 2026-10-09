@@ -169,11 +169,46 @@ class ACLP_REST {
          * ------------------------------------------------------------------- */
 
         public static function route_ping( $request ) {
+                // توسعه اصل ۵ (v2.2.0): ایجنت‌های «فقط-URL» کلید را در query می‌گذارند و
+                // صفحه متنی می‌خواهند. اگر هدری نبود، پارامتر key/api_key به مسیر استاندارد
+                // احراز هویت می‌رود؛ با format=text خروجی text/plain انگلیسی داده می‌شود.
+                $format = ( 'text' === strtolower( trim( (string) $request->get_param( 'format' ) ) ) ) ? 'text' : 'json';
+
+                $qkey = trim( (string) $request->get_param( 'key' ) );
+                if ( '' === $qkey ) {
+                        $qkey = trim( (string) $request->get_param( 'api_key' ) );
+                }
+                if ( '' !== $qkey ) {
+                        $request->set_param( 'api_key', $qkey );
+                }
+
                 $key = ACLP_Auth::authenticate( $request );
                 if ( is_wp_error( $key ) ) {
+                        if ( 'text' === $format ) {
+                                return self::url_gate_error_from_wp_error( $key, 'text' );
+                        }
                         return $key;
                 }
                 $site = untrailingslashit( home_url() );
+
+                if ( 'text' === $format ) {
+                        $online = array();
+                        foreach ( ACLP_Clients::for_key( (int) $key->id ) as $c ) {
+                                if ( ACLP_Utils::client_is_online( $c ) ) {
+                                        $online[] = $c->name;
+                                }
+                        }
+                        $lines   = array();
+                        $lines[] = 'ACLP URL GATE — ping (ACLP Bridge v' . ACLP_VERSION . ')';
+                        $lines[] = str_repeat( '-', 62 );
+                        $lines[] = 'OK — the bridge is reachable and this API key is valid.';
+                        $lines[] = 'URL Gateway: available — open /url/run to send a job (no headers needed).';
+                        $lines[] = 'Nodes online: ' . count( $online ) . ( $online ? ' (' . implode( ', ', $online ) . ')' : ' — start the ACLP agent on the PC' );
+                        $lines[] = 'Docs: ' . untrailingslashit( (string) ACLP_Settings::get( 'github_repo_url' ) ) . '/blob/main/docs/AGENT-API.md';
+                        self::url_gate_text( implode( "\n", $lines ) . "\n" );
+                        return null;
+                }
+
                 return rest_ensure_response( array(
                         'ok'                    => true,
                         'version'               => ACLP_VERSION,
@@ -182,6 +217,8 @@ class ACLP_REST {
                         'url_gate'              => version_compare( ACLP_VERSION, '2.0.0', '>=' ),
                         // پشتیبانی Base64 دستورات در دروازه URL (v2.1.0).
                         'url_gate_cmd64'        => version_compare( ACLP_VERSION, '2.1.0', '>=' ),
+                        // ping متنی برای ایجنت‌های فقط-URL (v2.2.0).
+                        'url_gate_ping'         => version_compare( ACLP_VERSION, '2.2.0', '>=' ),
                         'server_time'           => ACLP_Utils::now(),
                         'site'                  => get_bloginfo( 'name' ),
                         'site_url'              => $site,
@@ -1026,7 +1063,9 @@ class ACLP_REST {
                         "Advanced JSON payload (Base64 recommended):\n" .
                         "  ...url/run?key=YOUR_API_KEY&type=file_list&payload64=<Base64 of the ONE-line JSON>\n\n" .
                         "Fetch a previous result by ticket:\n" .
-                        "  " . $site . "/wp-json/aclp/v1/url/result?key=YOUR_API_KEY&ticket=JOB_UID\n\n" .
+                        "  " . $site . "/wp-json/aclp/v1/url/result?key=YOUR_API_KEY&ticket=JOB_UID&wait=20\n\n" .
+                        "Connectivity check (plain-text page, no job):\n" .
+                        "  " . $site . "/wp-json/aclp/v1/ping?key=YOUR_API_KEY&format=text\n\n" .
                         "Parameters:\n" .
                         "  key       (required) API key — aclp_live_...\n" .
                         "  cmd       SIMPLE command text, URL-encoded (spaces = %20, & = %26, quotes = %22)\n" .
@@ -1036,7 +1075,9 @@ class ACLP_REST {
                         "  payload   ONE line of URL-encoded JSON for advanced jobs\n" .
                         "  payload64 the same JSON as Base64 — recommended for complex payloads\n" .
                         "  client    client_uid — required only when several nodes share this key\n" .
-                        "  wait      0-25 seconds the page keeps collecting the result (default 15)\n" .
+                        "  wait      0-25 seconds the page keeps collecting the result (default 15).\n" .
+                        "            Chat agents with short page timeouts: use wait=0 to get the\n" .
+                        "            ticket instantly, then open the printed RESULT URL (&wait=20).\n" .
                         "  format    text (default) | json\n\n" .
                         "Full API reference: " . $repo . "/blob/main/docs/AGENT-API.md\n";
         }
@@ -1060,6 +1101,18 @@ class ACLP_REST {
                 $lines[] = 'JOB:      ' . $row->command_uid . ' (' . $row->type . ')';
                 $lines[] = 'STATUS:   ' . $row->status;
 
+                // توسعه اصل ۵ (v2.2.0): خط NODE — ایجنت متوجه می‌شود مقصد کدام گره است
+                // و آیا روشن است (دیباگ «همیشه pending» بدون خروج از صفحه).
+                $client = $row ? ACLP_Clients::get( (int) $row->client_id ) : null;
+                if ( $client ) {
+                        if ( ACLP_Utils::client_is_online( $client ) ) {
+                                $secs = max( 0, time() - strtotime( (string) $client->last_seen_at . ' UTC' ) );
+                                $lines[] = 'NODE:     ' . $client->name . ' (online, heartbeat ' . $secs . 's ago)';
+                        } else {
+                                $lines[] = 'NODE:     ' . $client->name . ' (OFFLINE — start the ACLP agent on the PC)';
+                        }
+                }
+
                 if ( in_array( $row->status, array( 'completed', 'failed' ), true ) ) {
                         $lines[] = 'DURATION: ' . (int) $row->duration_ms . ' ms';
                         $err = trim( (string) $row->error );
@@ -1074,9 +1127,11 @@ class ACLP_REST {
                                 : wp_json_encode( $result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
                 } else {
                         $lines[] = '';
-                        $lines[] = 'The job is still being processed (' . $row->status . ').';
-                        $lines[] = 'Open this URL in about 5 seconds to read the result:';
-                        $lines[] = untrailingslashit( home_url() ) . '/wp-json/aclp/v1/url/result?key=' . rawurlencode( $raw_key ) . '&ticket=' . rawurlencode( $row->command_uid );
+                        $lines[] = 'The job is queued (' . $row->status . '). Nodes usually pick it up within 5-10';
+                        $lines[] = 'seconds; if the node is busy it can take up to ~60 seconds.';
+                        $lines[] = 'Re-open this RESULT URL every 5-10 seconds until STATUS becomes';
+                        $lines[] = '"completed" or "failed" (the &wait=20 makes the page wait up to 20s):';
+                        $lines[] = untrailingslashit( home_url() ) . '/wp-json/aclp/v1/url/result?key=' . rawurlencode( $raw_key ) . '&ticket=' . rawurlencode( $row->command_uid ) . '&wait=20';
                 }
 
                 $files = array();

@@ -173,6 +173,11 @@ API responses; never assume them.
 - MODE B = you can only print text; a human runs the commands for you.
 - MODE C = you can only OPEN/BROWSE a URL and read the page (no POST, no headers).
 Read ONLY your mode's section below, then follow it literally, step by step.
+NOTE for chat AIs with a web-browsing tool (ChatGPT, Claude, Gemini, Copilot, ...):
+you are MODE C. A browsing tool opens an address and reads the page, but it CANNOT
+send POST requests or set custom headers. If a request attempt answered
+"aclp_missing_key" (401) or a Persian "کلید API ارسال نشده است" error, that is
+exactly this limitation — do NOT retry MODE A; go straight to MODE C below.
 
 ## Connection settings (all modes)
 - Base URL:  {SITE_URL}/wp-json/aclp/v1
@@ -184,6 +189,10 @@ Read ONLY your mode's section below, then follow it literally, step by step.
   Authorization. Content-Type: application/json for JSON bodies.
 - HTTPS is preferred. If HTTPS fails with a connection/SSL error, automatically retry the same
   request over HTTP (the server supports both).
+- URL-only connectivity check (MODE C): open
+      {SITE_URL}/wp-json/aclp/v1/ping?key=<the API key>&format=text
+  The page answers in plain English when the bridge is reachable and the key works
+  (it also lists how many nodes are currently online).
 - NOTE about the PYTHON AGENT (for the human operator, not for you): when the agent's
   first-run setup asks for "WordPress site URL", the operator enters ONLY the site root
   {SITE_URL} — never this /wp-json/... REST path (agent v1.3.1+ repairs wrong entries).
@@ -261,14 +270,21 @@ in their terminal. For EVERY single step:
 ## MODE C — URL-ONLY clients (open a URL, read the page)
 =====================================================================
 If you cannot run code, send POST requests or set custom headers — but you CAN
-open a web address and read its content — use the URL Gateway. The whole cycle
-is one page view: the command sits at the end of the URL, and the opened page
-shows the job report.
+open a web address and read its content — use the URL Gateway. The command sits
+at the end of the URL, and the opened page shows the job report. Use MODE C
+ALSO whenever a request attempt returned "aclp_missing_key" — that error means
+your tool could not attach the key as a header.
 
-1) Submit a job and (normally) get the result in the same page view:
-       {SITE_URL}/wp-json/aclp/v1/url/run?key=<the API key>&cmd=<command>&wait=15
+0) Optional connectivity check first (plain-text page, no job created):
+       {SITE_URL}/wp-json/aclp/v1/ping?key=<the API key>&format=text
+
+1) Submit the job. Chat browsing tools often have SHORT page timeouts (5-15s),
+   so submit with wait=0 — the page answers INSTANTLY with the job ticket:
+       {SITE_URL}/wp-json/aclp/v1/url/run?key=<the API key>&cmd=<command>&wait=0
    - "cmd" = ONE SIMPLE shell command, URL-encoded (spaces become %20). Example:
-       .../url/run?key=aclp_live_xxx&cmd=echo%20hello&wait=15
+       .../url/run?key=aclp_live_xxx&cmd=echo%20hello&wait=0
+   - If your tool tolerates longer page loads (~25s), you may use wait=20 and the
+     finished result usually appears directly in the same page view.
    - COMPLEX command text (quotes, &, |, >, <, $, newlines, non-ASCII) MUST be
      Base64-encoded first and passed as "cmd64" — raw complex text placed in a
      URL breaks the address. Recipe:
@@ -280,14 +296,20 @@ shows the job report.
      Example: cmd64=ZWNobyAiaGVsbG8iICYmIGxz   (decodes to: echo "hello" && ls)
      The alias &b64= is accepted as well.
    - Non-shell job: drop "cmd"/"cmd64" and pass "type" instead, e.g.
-       .../url/run?key=aclp_live_xxx&type=sysinfo&wait=15
+       .../url/run?key=aclp_live_xxx&type=sysinfo&wait=0
    - "wait" = seconds the page keeps collecting the result (0-25, default 15).
-2) Read the plain-text report on the page: STATUS, RESULT, FILES. If STATUS is
-   still "pending" or "running", wait the seconds shown on the page, then open
-   the RESULT URL printed there (the /url/result link with your ticket). Repeat
-   until STATUS is "completed" or "failed". NEVER invent output — read the page.
+2) Open the RESULT URL printed on the submission page (it contains your ticket
+   and &wait=20, so the page itself waits up to 20 seconds for the result).
+   Typical cycle: the node picks the job up in 5-10 seconds. If STATUS is still
+   "pending" or "running", RE-OPEN THE SAME RESULT URL every 5-10 seconds and
+   keep retrying for up to 2 minutes before concluding anything — a busy node
+   can occasionally take ~60 seconds. NEVER invent output — read the page.
+   If a page load itself timed out, the job may still exist — re-open the result
+   URL; if you lost the ticket, re-submit with wait=0.
 3) If the page says select_node, several nodes share this key: re-open the same
-   URL adding &client=<client_uid> of one node from the list.
+   URL adding &client=<client_uid> of one node from the list. The report also
+   prints a NODE line — if it says OFFLINE, the ACLP agent on the PC is not
+   running: tell the operator to start it.
 4) Limits and advanced jobs: keep the command under ~4000 characters and the
    whole URL under ~6000 (longer: split it or stage content with file_write +
    run_python). For advanced jobs pass ONE line of JSON either as
@@ -339,7 +361,7 @@ PROMPT;
                 $prompt = str_replace(
                         array( '{VERSION}', '{SITE_URL}', '{KEY_LINE}', '{API_KEY_PH}', '{REPO_URL}' ),
                         array(
-                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '2.1.0',
+                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '2.2.0',
                                 untrailingslashit( (string) $site_url ),
                                 $key_line,
                                 $api_key_ph,

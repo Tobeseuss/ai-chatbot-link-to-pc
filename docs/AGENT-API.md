@@ -3,7 +3,18 @@
 > **Persian note (برای کاربر):** این سند عمداً به انگلیسی نوشته شده است، چون مخاطب اصلی آن چت‌بات‌ها و ایجنت‌های هوش مصنوعی هستند که مستندات انگلیسی را قابل‌اعتمادتر پارس می‌کنند. راهنمای فارسی کاربر: `docs/USER-GUIDE.fa.md`. این فایل را در system prompt یا ابزار knowledge چت‌بات خود قرار دهید تا بداند چگونه با سیستم کاربر تعامل کند.
 
 Base URL: `https://YOUR-SITE.com/wp-json/aclp/v1`
-Plugin version: 2.1.0 · API namespace: `aclp/v1`
+Plugin version: 2.2.0 · API namespace: `aclp/v1`
+
+> **v2.2.0 — URL GATE FOR CHAT BROWSING AGENTS (Principle 5 development):** field-tested the
+> gate the way ChatGPT experiences it and removed the friction: (1) `/ping` now accepts the
+> key as a query parameter and answers a **plain-text English page** with `&format=text`
+> (URL-only connectivity check, section 3.1); (2) the job report prints a **NODE line**
+> (target node + online/offline + heartbeat age) and gives realistic retry guidance —
+> re-open the RESULT URL every 5-10s for up to ~2 minutes; (3) the agent onboarding text
+> (`GET /agent-prompt`) now tells chat AIs with a browsing tool (ChatGPT/Claude/Gemini/...)
+> they are MODE C and to submit with **`wait=0`** (instant ticket) then re-open the printed
+> RESULT URL (which now carries `&wait=20`) — no more long-blocking pages that trip short
+> browser-tool timeouts. `/ping` returns `"url_gate_ping": true` on v2.2.0+.
 
 > **v2.1.0 — URL GATE ENCODING (Principle 5 development):** textually complex commands
 > (quotes, `&`, `|`, `>`, `<`, `$`, newlines, non-ASCII) placed raw in the URL break the
@@ -86,15 +97,31 @@ Rate limit: default 240 requests/minute per key → HTTP 429 when exceeded.
 ## 3. Endpoints
 
 ### 3.1 `GET /ping` — connectivity + auth check
-Response:
+Auth: standard headers (`Authorization: Bearer` / `X-ACLP-Key`) **or, since v2.2.0, the query
+parameter `key` (or `api_key`)** — so URL-only agents can check connectivity by just opening
+a URL. Add `&format=text` (v2.2.0+) to receive a plain-English text page instead of JSON:
+
+```
+GET https://YOUR-SITE.com/wp-json/aclp/v1/ping?key=aclp_live_xxx&format=text
+
+ACLP URL GATE — ping (ACLP Bridge v2.2.0)
+--------------------------------------------------------------
+OK — the bridge is reachable and this API key is valid.
+URL Gateway: available — open /url/run to send a job (no headers needed).
+Nodes online: 1 (DESKTOP-ENF56CA)
+Docs: .../docs/AGENT-API.md
+```
+
+JSON response:
 ```json
-{"ok":true,"version":"2.1.0","chat_supported":true,"url_gate":true,"url_gate_cmd64":true,"server_time":"...","site":"...","site_url":"...",
+{"ok":true,"version":"2.2.0","chat_supported":true,"url_gate":true,"url_gate_cmd64":true,"url_gate_ping":true,"server_time":"...","site":"...","site_url":"...",
  "http_fallback_url":"http://YOUR-SITE.com/wp-json/aclp/v1","allow_http_fallback":true,
  "docs_url":".../docs/AGENT-API.md"}
 ```
 `chat_supported` is `true` when the plugin is v1.3.0+ (user chat endpoints exist).
 `url_gate` is `true` when the plugin is v2.0.0+ (URL-only interaction exists, section 3.10).
 `url_gate_cmd64` is `true` when the plugin is v2.1.0+ (Base64-encoded commands `cmd64`/`b64`/`payload64` accepted, section 3.10).
+`url_gate_ping` is `true` when the plugin is v2.2.0+ (query-key auth + `format=text` page).
 
 ### 3.2 `GET /agent-prompt` — public onboarding text for AI agents (no key needed)
 Returns `{"ok":true,"version":"...","usage":"...","docs_url":"...","repo_url":"...","prompt":"..."}`.
@@ -214,13 +241,22 @@ plain `cmd` (URL-encoded).
 GET https://YOUR-SITE.com/wp-json/aclp/v1/url/run?key=aclp_live_xxx&cmd=echo%20hello&wait=15
 ```
 
+Chat AIs with a **browsing tool** (ChatGPT, Claude, Gemini, ...): submit with **`wait=0`** —
+the page answers instantly with the ticket (no long-blocking request that could hit your
+browser-tool timeout), then re-open the RESULT URL printed on the page:
+
+```
+GET https://YOUR-SITE.com/wp-json/aclp/v1/url/run?key=aclp_live_xxx&cmd=echo%20hello&wait=0
+```
+
 The page (Content-Type `text/plain`) looks like:
 
 ```
-ACLP URL GATE — job report (ACLP Bridge v2.1.0)
+ACLP URL GATE — job report (ACLP Bridge v2.2.0)
 --------------------------------------------------------------
 JOB:      9c1f6b2e-1d4a-4c3e-9a2f-5f8e7d6c5b4a (shell)
 STATUS:   completed
+NODE:     DESKTOP-ENF56CA (online, heartbeat 3s ago)
 DURATION: 812 ms
 
 RESULT:
@@ -233,11 +269,13 @@ RESULT:
 FILES: (none)
 ```
 
-If `STATUS` is still `pending`/`running`, the page prints a ready-made RESULT URL —
-wait the suggested ~5 seconds, open it, repeat until `completed`/`failed`:
+If `STATUS` is still `pending`/`running`, the page prints a ready-made RESULT URL (with
+`&wait=20`, so the opened page itself waits up to 20 seconds) plus realistic guidance —
+nodes usually pick the job up in 5-10 seconds, but a busy node can take ~60 seconds:
+re-open the RESULT URL every 5-10 seconds for up to ~2 minutes before concluding anything:
 
 ```
-GET https://YOUR-SITE.com/wp-json/aclp/v1/url/result?key=aclp_live_xxx&ticket=<JOB_UID>
+GET https://YOUR-SITE.com/wp-json/aclp/v1/url/result?key=aclp_live_xxx&ticket=<JOB_UID>&wait=20
 ```
 
 **Parameters of `/url/run`:**
@@ -264,6 +302,9 @@ GET https://YOUR-SITE.com/wp-json/aclp/v1/url/result?key=aclp_live_xxx&ticket=<J
 - **Always Base64-encode complex commands into `cmd64`** — raw complex text breaks the URL.
   Keep the command under ~4000 characters and the whole URL under ~6000; longer jobs belong
   in MODE A (`POST /commands`), or stage content with `file_write` + `run_python`.
+- The report prints a **NODE line** (v2.2.0+): target node name + `online, heartbeat Ns ago`
+  or `OFFLINE — start the ACLP agent on the PC`. If it says OFFLINE, no retry will help —
+  tell the operator to start the agent first.
 - Passing both `cmd` and `cmd64` (or both `payload` and `payload64`) returns a clear error —
   pass the command exactly once.
 - Files produced by the job appear in the `FILES` section as signed `download_url` links —
@@ -274,7 +315,8 @@ GET https://YOUR-SITE.com/wp-json/aclp/v1/url/result?key=aclp_live_xxx&ticket=<J
 - The same queue/history powers all three modes — the owner sees every URL-gate job in the
   WordPress admin like any other job.
 - Requires plugin **v2.0.0+** on the site (`/ping` → `"url_gate": true`); Base64 params need
-  **v2.1.0+** (`/ping` → `"url_gate_cmd64": true`).
+  **v2.1.0+** (`/ping` → `"url_gate_cmd64": true`); text ping + NODE line + chat-friendly
+  `wait=0` recipe need **v2.2.0+** (`/ping` → `"url_gate_ping": true`).
 
 ## 4. Action types & payload schemas
 
@@ -324,6 +366,13 @@ KEY="aclp_live_xxxx"
 
 # connectivity check
 curl -H "X-ACLP-Key: $KEY" "$BASE/ping"
+
+# URL-only connectivity check (v2.2.0 — no headers, plain-text page; open in any browser)
+curl "$BASE/ping?key=$KEY&format=text"
+
+# URL GATE (v2.0.0+): run a command by just opening the URL (no headers, no POST)
+# chat browsing agents: use wait=0, then re-open the printed RESULT URL (&wait=20)
+curl "$BASE/url/run?key=$KEY&cmd=echo%20hello&wait=0"
 
 # run a shell command and wait for the result
 curl -X POST "$BASE/commands" -H "X-ACLP-Key: $KEY" -H "Content-Type: application/json" \
