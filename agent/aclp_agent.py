@@ -8,11 +8,17 @@ Cross-platform agent (Windows / Linux) that connects the user's PC to the
 AI chatbots: shell commands, file operations, software installation,
 browser control, file transfers and more.
 
-Version : 1.1.0
+Version : 1.2.0
 License : GPL-2.0-or-later
 Repo    : https://github.com/Tobeseuss/ai-chatbot-link-to-pc
 
 Highlights:
+- Correct Persian console output: the agent forces UTF-8 (chcp 65001 on Windows) and,
+  on terminals without bidi support (legacy cmd.exe), automatically reshapes Persian
+  text (arabic-reshaper + python-bidi, auto-installed) so it never renders jumbled.
+- One-shot relay mode for TEXT-ONLY chatbots:  python aclp_agent.py relay <action> ...
+  lets a chatbot that cannot run code still control the PC — it just prints the command,
+  the user copies it into the terminal and pastes the JSON result back to the chatbot.
 - Automatic HTTP fallback: if the site's HTTPS has problems (SSL errors, connection
   failures), the agent transparently retries over HTTP so everything keeps working.
 - Optional privilege elevation: if the running user is not administrator/root, the user
@@ -20,10 +26,8 @@ Highlights:
   that need elevation can still run. NOTHING requires elevation — every action works
   normally with regular permissions; elevation is only used when explicitly requested
   (payload "elevated": true / privilege_run) or when the user enabled auto_elevate.
-
-NOTE: console messages are in English on purpose so they render correctly on
-Windows terminals with legacy codepages. Full Persian documentation lives in
-the repository docs/ directory.
+- Reports the controlling AI model name (config "ai_model") to the WordPress panel,
+  so the user can see per API key which AI/agent talked to which machine.
 """
 
 import base64
@@ -41,12 +45,122 @@ import traceback
 import uuid
 import webbrowser
 
-__VERSION__ = "1.1.0"
+__VERSION__ = "1.2.0"
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aclp_agent.log")
 MAX_OUTPUT_CHARS = 400_000
 MAX_FILE_READ_BYTES = 8 * 1024 * 1024  # 8 MB per file_read call
+
+
+# ---------------------------------------------------------------------------
+# Console bootstrap: UTF-8 everywhere + correct Persian (RTL) rendering.
+# ---------------------------------------------------------------------------
+def _console_setup():
+    """Force UTF-8 I/O so Persian text is never mangled by legacy codepages."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+    if os.name == "nt":
+        try:
+            import ctypes
+            ctypes.windll.kernel32.SetConsoleOutputCP(65001)
+            ctypes.windll.kernel32.SetConsoleCP(65001)
+        except Exception:
+            pass
+        os.system("chcp 65001 >nul 2>&1")
+
+
+_console_setup()
+
+# Terminal capability detection: modern terminals (Windows Terminal, VS Code,
+# most Linux emulators) do their own bidi/shaping -> print logical text as-is.
+# Legacy Windows conhost (cmd.exe) does NOT -> pre-shape + bidi-reverse Persian.
+_TERMINAL_SHAPES_BIDI = bool(
+    os.environ.get("WT_SESSION")            # Windows Terminal
+    or os.environ.get("TERM_PROGRAM") == "vscode"
+    or os.name != "nt"                       # Linux/macOS terminals
+    or os.environ.get("ANSICON")
+)
+
+_SHAPE_LIBS_TRIED = False
+_SHAPE_OK = False
+
+
+def _ensure_shape_libs() -> bool:
+    """Best-effort install of arabic-reshaper + python-bidi (tiny, pure Python).
+    Needed only on terminals that cannot shape Persian themselves."""
+    global _SHAPE_LIBS_TRIED, _SHAPE_OK
+    if _SHAPE_LIBS_TRIED:
+        return _SHAPE_OK
+    _SHAPE_LIBS_TRIED = True
+    if _TERMINAL_SHAPES_BIDI:
+        _SHAPE_OK = True  # not needed, but "usable"
+        return True
+    try:
+        import arabic_reshaper  # noqa: F401
+        import bidi.algorithm  # noqa: F401
+        _SHAPE_OK = True
+    except ImportError:
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "--user", "--quiet",
+                 "arabic-reshaper", "python-bidi"],
+                check=True, capture_output=True, timeout=180,
+            )
+            import arabic_reshaper  # noqa: F401
+            import bidi.algorithm  # noqa: F401
+            _SHAPE_OK = True
+        except Exception:
+            _SHAPE_OK = False
+    return _SHAPE_OK
+
+
+def _has_rtl(text: str) -> bool:
+    return any("\u0600" <= ch <= "\u06FF" or "\uFB50" <= ch <= "\uFEFF" for ch in text)
+
+
+def fa(text: str) -> str:
+    """Prepare a (possibly Persian) string for CONSOLE display.
+    - On bidi-capable terminals: return untouched logical text.
+    - On legacy Windows conhost: reshape + bidi-reverse so it reads correctly.
+    The log file always stores the untouched logical text."""
+    if not _has_rtl(text) or _TERMINAL_SHAPES_BIDI:
+        return text
+    if not _ensure_shape_libs():
+        return text
+    try:
+        import arabic_reshaper
+        from bidi.algorithm import get_display
+        return get_display(arabic_reshaper.reshape(text))
+    except Exception:
+        return text
+
+
+def say(fa_text: str, en_text: str = "") -> None:
+    """Print a user-facing message. Persian-first; falls back to the English
+    variant when the console cannot render shaped Persian at all."""
+    if not fa_text:
+        fa_text = en_text
+    if _has_rtl(fa_text) and not _TERMINAL_SHAPES_BIDI and not _ensure_shape_libs():
+        print(en_text or fa_text, flush=True)
+        return
+    print(fa(fa_text), flush=True)
+
+
+def log(message: str) -> None:
+    line = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {message}"
+    try:
+        print(fa(line), flush=True)
+    except Exception:
+        print(line, flush=True)
+    try:
+        with open(LOG_FILE, "a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+    except OSError:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -82,16 +196,6 @@ class ACLPError(Exception):
     """Raised by handlers to report a clean failure back to the chatbot."""
 
 
-def log(message: str) -> None:
-    line = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {message}"
-    print(line, flush=True)
-    try:
-        with open(LOG_FILE, "a", encoding="utf-8") as fh:
-            fh.write(line + "\n")
-    except OSError:
-        pass
-
-
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -107,6 +211,7 @@ def load_config() -> dict:
     cfg.setdefault("auto_elevate", False)         # تلاش خودکار برای دسترسی مدیر فقط با اجازه کاربر
     cfg.setdefault("elevation_user", "")          # اختیاری: کاربر دارای دسترسی sudo/runas
     cfg.setdefault("elevation_password", "")      # اختیاری: رمز همان کاربر (در فایل کانفیگ محلی می‌ماند)
+    cfg.setdefault("ai_model", "")                # نام هوش مصنوعی/چت‌باتی که این ایجنت را کنترل می‌کند (برای نمایش در پنل)
     return cfg
 
 
@@ -121,26 +226,27 @@ def save_config(cfg: dict) -> None:
 
 
 def setup_wizard() -> dict:
-    """Interactive first-run setup. Persian prompts are printed after an
-    English hint so both render fine on any terminal."""
+    """Interactive first-run setup. Fully Persian (auto-shaped for the console)."""
     print("=" * 62)
-    print("  ACLP Agent setup  /  راه‌اندازی اولیه ایجنت")
+    print(fa("  راه‌اندازی اولیه ایجنت ACLP  /  ACLP Agent setup"))
     print("=" * 62)
-    site = input("Site URL (آدرس سایت وردپرس، مثل https://example.com): ").strip()
+    site = input(fa("آدرس سایت وردپرس (مثلاً https://example.com): ")).strip()
     if not site:
-        print("[error] Site URL is required.")
+        say("خطا: آدرس سایت الزامی است.", "[error] Site URL is required.")
         sys.exit(1)
     if not site.startswith(("http://", "https://")):
         site = "https://" + site
     site = site.rstrip("/")
 
-    api_key = input("API key (کلید API ساخته‌شده در پنل وردپرس): ").strip()
+    api_key = input(fa("کلید API (ساخته‌شده در پنل وردپرس → AI-PC Link → کلیدهای API): ")).strip()
     if not api_key:
-        print("[error] API key is required.")
+        say("خطا: کلید API الزامی است.", "[error] API key is required.")
         sys.exit(1)
 
     default_name = socket.gethostname()
-    name = input(f"Client name (نام این سیستم) [{default_name}]: ").strip() or default_name
+    name = input(fa(f"نام این سیستم [{default_name}]: ")).strip() or default_name
+
+    ai_model = input(fa("نام هوش مصنوعی/چت‌باتی که این سیستم را کنترل می‌کند (اختیاری، بعداً هم قابل تغییر است): ")).strip()
 
     cfg = {
         "site_url": site,
@@ -149,31 +255,33 @@ def setup_wizard() -> dict:
         "client_uid": str(uuid.uuid4()),
         "poll_interval": 5,
         "command_timeout": 300,
+        "ai_model": ai_model,
     }
     save_config(cfg)
-    print(f"[ok] Config saved to {CONFIG_FILE}")
+    say(f"[ok] تنظیمات ذخیره شد در: {CONFIG_FILE}", f"[ok] Config saved to {CONFIG_FILE}")
 
     # ------------------------------------------------------------------
     # Optional privilege elevation (اختیاری — اجباری نیست)
     # ------------------------------------------------------------------
-    print("\n--- Admin/root elevation (optional) | دسترسی مدیر (اختیاری) ---")
-    print("Everything works without this. Configure it only if you want the AI to be able")
-    print("to run administrator/root commands when needed. برای کارکرد عادی نیازی به این بخش نیست.")
-    if input("Configure elevation now? [y/N]: ").strip().lower() in ("y", "yes"):
+    print()
+    say("--- دسترسی مدیر (اختیاری) / Admin-root elevation (optional) ---")
+    say("همه قابلیت‌ها بدون این بخش هم کار می‌کنند؛ فقط اگر می‌خواهید هوش مصنوعی بتواند")
+    say("دستورات مدیریتی (administrator/root) اجرا کند، این بخش را تنظیم کنید.")
+    if input(fa("تنظیم دسترسی مدیر الان انجام شود؟ [y/N]: ")).strip().lower() in ("y", "yes"):
         default_user = os.environ.get("USERNAME") or os.environ.get("USER", "")
-        e_user = input(f"Elevation user (کاربر دارای sudo/runas) [{default_user}]: ").strip() or default_user
-        e_pass = getpass.getpass("Elevation password (رمز — hidden, Enter to skip): ")
-        auto = input("Auto-retry failed commands with elevation on permission errors? [y/N]: ").strip().lower() in ("y", "yes")
+        e_user = input(fa(f"کاربر دارای دسترسی sudo/runas [{default_user}]: ")).strip() or default_user
+        e_pass = getpass.getpass(fa("رمز همان کاربر (مخفی — Enter برای رد شدن): "))
+        auto = input(fa("اگر دستوری به‌خاطر نبودن دسترسی مدیر شکست خورد، خودکار با دسترسی مدیر دوباره تلاش شود؟ [y/N]: ")).strip().lower() in ("y", "yes")
         cfg["elevation_user"] = e_user
         if e_pass:
             cfg["elevation_password"] = e_pass
         cfg["auto_elevate"] = auto
         save_config(cfg)
-        print("[ok] Elevation settings saved (config.json is protected with 0600 on Linux).")
+        say("[ok] تنظیمات دسترسی مدیر ذخیره شد (config.json روی لینوکس با سطح دسترسی 0600 محافظت می‌شود).")
     else:
-        print("[ok] Skipped. You can add elevation_user/elevation_password/auto_elevate to config.json anytime.")
+        say("[ok] رد شد. هر زمان خواستید مقادیر elevation_user / elevation_password / auto_elevate را در config.json اضافه کنید.")
 
-    print("[ok] Starting agent now... (Ctrl+C to stop)")
+    say("[ok] ایجنت الان اجرا می‌شود... (Ctrl+C برای توقف)")
     return cfg
 
 
@@ -749,6 +857,7 @@ class Agent:
             "hostname": socket.gethostname(),
             "python_version": platform.python_version(),
             "agent_version": __VERSION__,
+            "ai_model": self.cfg.get("ai_model", ""),
             "capabilities": sorted(HANDLERS.keys()),
         }
         resp = self.api("POST", "/agent/register", json=payload)
@@ -769,6 +878,66 @@ class Agent:
                 return self.register()
             self.registered = False
         return resp
+
+    # -- one-shot relay mode (برای چت‌بات‌های فقط-متنی) ----------------------
+    def relay(self, ctype: str, payload: dict, timeout: float = 120) -> int:
+        """Submit ONE action to the bridge, execute it on this PC through the
+        normal queue, then print a single JSON block with the final result.
+        Designed for text-only chatbots: the chatbot prints this command, the
+        user copies it into a terminal, then pastes the JSON back to the chatbot.
+        Returns a process exit code."""
+        # ثبت‌نام تا client_uid معتبر باشد.
+        reg = self.register()
+        if not self.registered:
+            log(f"ERROR: could not register with server: {reg.get('message', 'unknown')}")
+            return 1
+
+        # ۱) ایجاد فرمان از طریق همان مسیری که چت‌بات‌ها استفاده می‌کنند (تاریخچه کامل می‌ماند).
+        created = self.api("POST", "/commands", json={
+            "type": ctype,
+            "payload": payload,
+            "client_uid": self.cfg["client_uid"],
+            "source": self.cfg.get("ai_model") or "text-chatbot-relay",
+        })
+        if not created.get("ok"):
+            log(f"ERROR: could not create command: {created.get('message', 'unknown')}")
+            return 1
+        cmds = created.get("commands") or []
+        if not cmds:
+            log("ERROR: server returned no command UID.")
+            return 1
+        target_uid = cmds[0]["command_uid"]
+        log(f"Command queued: {target_uid}")
+
+        # ۲) فرمان را از صف خود بردار و اجرا کن (همان مسیر عادی اجرا + ارسال نتیجه).
+        deadline = time.time() + timeout
+        done = False
+        while time.time() < deadline and not done:
+            pending = self.api("GET", "/agent/commands/pending?limit=10")
+            if pending.get("ok"):
+                for cmd in pending.get("commands", []):
+                    self.execute(cmd)
+                    if cmd.get("command_uid") == target_uid:
+                        done = True
+                if not done:
+                    # شاید نمونه دیگری از ایجنت (حالت poll) فرمان را برداشته باشد.
+                    st = self.api("GET", f"/commands/{target_uid}")
+                    if st.get("status") in ("completed", "failed"):
+                        done = True
+            else:
+                time.sleep(2)
+            if not done:
+                time.sleep(1)
+
+        # ۳) نتیجه نهایی را بگیر و به‌صورت یک بلوک JSON تمیز چاپ کن.
+        final = self.api("GET", f"/commands/{target_uid}")
+        print()
+        print("=" * 62)
+        say("نتیجه برای کپی به چت‌بات (JSON) / Result JSON for the chatbot:")
+        print("=" * 62)
+        print(json.dumps(final, ensure_ascii=False, indent=2))
+        status = final.get("status")
+        return 0 if status in ("completed", "failed") else 2
 
     def download_file(self, file_id, save_path):
         resp = self.api("GET", f"/files/{int(file_id)}", expect_json=False, stream=True, timeout=600)
@@ -963,13 +1132,15 @@ class Agent:
 
     # -- main loop -----------------------------------------------------------
     def run(self, once: bool = False):
-        log(f"ACLP Agent v{__VERSION__} starting on {platform_system()}...")
+        say(f"ACLP Agent v{__VERSION__} در حال اجرا روی {platform_system()}...",
+            f"ACLP Agent v{__VERSION__} starting on {platform_system()}...")
         resp = self.register()
         if not self.registered:
             msg = resp.get("message", "unknown error")
             log(f"FATAL: could not register with server: {msg}")
             if resp.get("status_code") in (401, 403):
-                log("Check your API key in config.json (کلید API را بررسی کنید).")
+                say("کلید API را در config.json بررسی کنید (پنل وردپرس → AI-PC Link → کلیدهای API).",
+                    "Check your API key in config.json.")
             sys.exit(1)
 
         while True:
@@ -1004,10 +1175,68 @@ class Agent:
             time.sleep(delay)
 
 
+def _relay_usage() -> None:
+    print("=" * 62)
+    say("حالت Relay — مخصوص چت‌بات‌های فقط-متنی / Relay mode for text-only chatbots")
+    print("=" * 62)
+    say("یک فرمان را مستقیم روی این سیستم اجرا می‌کند و نتیجه JSON را چاپ می‌کند.")
+    say("راهنما (نمونه‌ها):")
+    print("  python aclp_agent.py relay shell dir")
+    print("  python aclp_agent.py relay shell git status")
+    print("  python aclp_agent.py relay sysinfo")
+    print("  python aclp_agent.py relay ping")
+    print('  python aclp_agent.py relay file_list --json {"path": "C:/Users"}')
+    print('  python aclp_agent.py relay shell --json {"command": "whoami", "timeout": 60}')
+    say("هر <action> یکی از ۲۰ اکشن مستند در docs/AGENT-API.md است.")
+
+
 def main():
     args = sys.argv[1:]
+
     if "--version" in args or "-v" in args:
         print(f"ACLP Agent v{__VERSION__}")
+        return
+
+    # -- relay: one-shot execution for text-only chatbots --------------------
+    if args and args[0] == "relay":
+        rest = args[1:]
+        if not rest or rest[0] in ("-h", "--help", "help"):
+            _relay_usage()
+            return
+        ctype = rest[0].strip().lower()
+        payload = {}
+        if "--json" in rest:
+            i = rest.index("--json")
+            if i + 1 >= len(rest):
+                say("خطا: بعد از --json باید یک JSON یک‌خطی بیاید.", "ERROR: --json needs a one-line JSON payload.")
+                sys.exit(1)
+            try:
+                payload = json.loads(" ".join(rest[i + 1:]))
+            except ValueError as exc:
+                say(f"خطا: JSON نامعتبر است: {exc}", f"ERROR: invalid JSON: {exc}")
+                sys.exit(1)
+        elif ctype == "shell" and len(rest) > 1:
+            payload = {"command": " ".join(rest[1:])}
+        elif len(rest) > 1:
+            say(f"خطا: برای اکشن «{ctype}» از --json استفاده کنید یا فقط نام اکشن را بنویسید.",
+                f"ERROR: use --json for action '{ctype}' or pass only the action name.")
+            sys.exit(1)
+
+        cfg = load_config()
+        if not cfg.get("site_url") or not cfg.get("api_key"):
+            cfg = setup_wizard()
+            save_config(cfg)
+        sys.exit(Agent(cfg).relay(ctype, payload))
+
+    if "-h" in args or "--help" in args:
+        print(f"ACLP Agent v{__VERSION__}")
+        print("Usage:")
+        print("  python aclp_agent.py                 # run the agent (poll loop)")
+        print("  python aclp_agent.py --setup         # re-run first-time setup")
+        print("  python aclp_agent.py relay <action>  # one-shot command for text-only chatbots")
+        print("  python aclp_agent.py relay shell dir # example: run 'dir' and print JSON result")
+        print("  python aclp_agent.py --once          # run one poll cycle and exit")
+        print("  python aclp_agent.py --version")
         return
 
     cfg = load_config()
@@ -1018,7 +1247,8 @@ def main():
     try:
         Agent(cfg).run(once="--once" in args)
     except KeyboardInterrupt:
-        print("\n[ok] Agent stopped by user. خداحافظ!")
+        print()
+        say("[ok] ایجنت توسط کاربر متوقف شد. خداحافظ!", "[ok] Agent stopped by user. Bye!")
 
 
 if __name__ == "__main__":

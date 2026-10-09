@@ -8,5 +8,6 @@
   "allow_http_fallback": true,
   "auto_elevate": false,
   "elevation_user": "",
-  "elevation_password": ""
+  "elevation_password": "",
+  "ai_model": "ChatGPT"
 }
