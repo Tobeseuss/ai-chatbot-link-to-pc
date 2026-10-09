@@ -37,6 +37,7 @@ class ACLP_Admin {
                 add_submenu_page( 'aclp', 'کلیدهای API', 'کلیدهای API', 'manage_options', 'aclp-keys', array( 'ACLP_Admin_Pages', 'render_keys' ) );
                 add_submenu_page( 'aclp', 'سیستم‌های متصل', 'سیستم‌های متصل', 'manage_options', 'aclp-clients', array( 'ACLP_Admin_Pages', 'render_clients' ) );
                 add_submenu_page( 'aclp', 'تاریخچه تعاملات', 'تاریخچه تعاملات', 'manage_options', 'aclp-history', array( 'ACLP_Admin_Pages', 'render_history' ) );
+                add_submenu_page( 'aclp', 'گفتگوها', 'گفتگوها', 'manage_options', 'aclp-chats', array( 'ACLP_Admin_Pages', 'render_chats' ) );
                 add_submenu_page( 'aclp', 'تنظیمات', 'تنظیمات', 'manage_options', 'aclp-settings', array( 'ACLP_Admin_Pages', 'render_settings' ) );
                 // صفحه مخفی جزئیات هر کلید (از طریق لینک «جزئیات و اتصال‌ها» باز می‌شود).
                 add_submenu_page( null, 'جزئیات کلید API', 'جزئیات کلید', 'manage_options', 'aclp-key-view', array( 'ACLP_Admin_Pages', 'render_key_detail' ) );

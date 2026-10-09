@@ -120,6 +120,28 @@ class ACLP_REST {
                         'callback'            => array( __CLASS__, 'route_download_file' ),
                         'permission_callback' => '__return_true',
                 ) );
+
+                // ---------- گفتگو (کاربر <-> هوش مصنوعی از طریق ایجنت) — v1.3.0 ----------
+                register_rest_route( self::NS, '/chat/send', array(
+                        'methods'             => 'POST',
+                        'callback'            => array( __CLASS__, 'route_chat_send' ),
+                        'permission_callback' => '__return_true',
+                ) );
+                register_rest_route( self::NS, '/chat/pending', array(
+                        'methods'             => 'GET',
+                        'callback'            => array( __CLASS__, 'route_chat_pending' ),
+                        'permission_callback' => '__return_true',
+                ) );
+                register_rest_route( self::NS, '/chat/reply', array(
+                        'methods'             => 'POST',
+                        'callback'            => array( __CLASS__, 'route_chat_reply' ),
+                        'permission_callback' => '__return_true',
+                ) );
+                register_rest_route( self::NS, '/chat/replies', array(
+                        'methods'             => 'GET',
+                        'callback'            => array( __CLASS__, 'route_chat_replies' ),
+                        'permission_callback' => '__return_true',
+                ) );
         }
 
         /* ---------------------------------------------------------------------
@@ -135,6 +157,7 @@ class ACLP_REST {
                 return rest_ensure_response( array(
                         'ok'                    => true,
                         'version'               => ACLP_VERSION,
+                        'chat_supported'        => version_compare( ACLP_VERSION, '1.3.0', '>=' ),
                         'server_time'           => ACLP_Utils::now(),
                         'site'                  => get_bloginfo( 'name' ),
                         'site_url'              => $site,
@@ -578,12 +601,20 @@ class ACLP_REST {
         }
 
         public static function route_download_file( $request ) {
-                $key = ACLP_Auth::authenticate( $request );
-                if ( is_wp_error( $key ) ) {
-                        return $key;
-                }
+                $key  = ACLP_Auth::authenticate( $request );
                 $file = ACLP_Files::get( (int) $request['file_id'] );
-                if ( ! $file || (int) $file->key_id !== (int) $key->id ) {
+
+                $authorized = false;
+                if ( ! is_wp_error( $key ) && $file && (int) $file->key_id === (int) $key->id ) {
+                        $authorized = true;
+                } elseif ( $file && hash_equals( ACLP_Files::sign( (int) $file->id ), (string) $request->get_param( 'aclp_token' ) ) ) {
+                        // لینک دانلود امضاشده — برای هوش مصنوعی‌هایی که هدر کلید را نمی‌توانند بفرستند.
+                        $authorized = true;
+                }
+                if ( ! $authorized ) {
+                        if ( is_wp_error( $key ) ) {
+                                return $key;
+                        }
                         return new WP_Error( 'aclp_not_found', 'فایل یافت نشد.', array( 'status' => 404 ) );
                 }
                 if ( empty( $file->stored_path ) || ! file_exists( $file->stored_path ) ) {
@@ -597,6 +628,199 @@ class ACLP_REST {
                 header( 'X-Content-Type-Options: nosniff' );
                 readfile( $file->stored_path );
                 exit;
+        }
+
+        /* ---------------------------------------------------------------------
+         * گفتگو: کاربر <-> هوش مصنوعی (v1.3.0)
+         * ------------------------------------------------------------------- */
+
+        /**
+         * ایجنت: ارسال پیام کاربر (+ فایل‌های آپلودشده) به هوش مصنوعی.
+         * احراز هویت: کلید + client_uid.
+         */
+        public static function route_chat_send( $request ) {
+                $key    = ACLP_Auth::authenticate( $request );
+                if ( is_wp_error( $key ) ) {
+                        return $key;
+                }
+                $client = ACLP_Auth::client_from_request( $request, $key );
+                if ( is_wp_error( $client ) ) {
+                        return $client;
+                }
+                $body = self::body( $request );
+                $text = trim( (string) ( $body['text'] ?? $body['message'] ?? '' ) );
+                if ( '' === $text ) {
+                        return new WP_Error( 'aclp_invalid', 'متن پیام (text) الزامی است.', array( 'status' => 400 ) );
+                }
+
+                // فایل‌های پیوست: فقط فایل‌های متعلق به همین کلید و جهت from_pc.
+                $files_out = array();
+                global $wpdb;
+                foreach ( (array) ( $body['files'] ?? array() ) as $f ) {
+                        $fid = is_array( $f ) ? (int) ( $f['file_id'] ?? 0 ) : (int) $f;
+                        if ( $fid <= 0 ) {
+                                continue;
+                        }
+                        $row = $wpdb->get_row( $wpdb->prepare(
+                                "SELECT id, original_name, size, direction FROM {$wpdb->prefix}aclp_files WHERE id = %d AND key_id = %d",
+                                $fid, (int) $key->id
+                        ) );
+                        if ( $row && 'from_pc' === $row->direction ) {
+                                $files_out[] = array(
+                                        'file_id'  => (int) $row->id,
+                                        'url'      => ACLP_Files::download_url( (int) $row->id ),
+                                        'filename' => $row->original_name,
+                                        'size'     => (int) $row->size,
+                                );
+                        }
+                }
+
+                $msg_id = ACLP_Chat::add( array(
+                        'key_id'    => (int) $key->id,
+                        'client_id' => (int) $client->id,
+                        'direction' => 'to_ai',
+                        'body'      => $text,
+                        'files'     => $files_out,
+                        'source'    => 'user:' . ( $client->name ?: $client->hostname ),
+                        'ip'        => $_SERVER['REMOTE_ADDR'] ?? '',
+                ) );
+                if ( ! $msg_id ) {
+                        return new WP_Error( 'aclp_db_error', 'ثبت پیام ناموفق بود.', array( 'status' => 500 ) );
+                }
+                ACLP_Logger::add( 'chat_sent', 'پیام کاربر به هوش مصنوعی ارسال شد', array( 'files' => count( $files_out ) ), (int) $key->id, (int) $client->id );
+                ACLP_Clients::touch_online( $client->id );
+
+                return rest_ensure_response( array(
+                        'ok'         => true,
+                        'message_id' => $msg_id,
+                        'files'      => $files_out,
+                ) );
+        }
+
+        /**
+         * هوش مصنوعی: دریافت پیام‌های جدید کاربر (long-poll اختیاری با wait).
+         * احراز هویت: فقط کلید.
+         */
+        public static function route_chat_pending( $request ) {
+                $key = ACLP_Auth::authenticate( $request );
+                if ( is_wp_error( $key ) ) {
+                        return $key;
+                }
+                $wait     = min( 25, max( 0, (int) $request->get_param( 'wait' ) ) );
+                $deadline = microtime( true ) + $wait;
+
+                do {
+                        $rows = ACLP_Chat::pending_for_key( $key->id, 50 );
+                        if ( $rows ) {
+                                break;
+                        }
+                        if ( $wait <= 0 || microtime( true ) >= $deadline ) {
+                                break;
+                        }
+                        sleep( 1 );
+                } while ( microtime( true ) < $deadline );
+
+                $messages = array();
+                $ids      = array();
+                foreach ( $rows as $row ) {
+                        $client = $row->client_id ? ACLP_Clients::get( $row->client_id ) : null;
+                        $shape  = ACLP_Chat::api_shape( $row );
+                        $shape['client'] = $client ? array(
+                                'client_uid' => $client->client_uid,
+                                'name'       => $client->name,
+                                'hostname'   => $client->hostname,
+                        ) : null;
+                        $messages[] = $shape;
+                        $ids[]      = (int) $row->id;
+                }
+                if ( $ids ) {
+                        ACLP_Chat::mark_delivered( $ids );
+                }
+                if ( $ids ) {
+                        ACLP_Logger::add( 'chat_delivered', 'پیام(های) کاربر به هوش مصنوعی تحویل شد', array( 'count' => count( $ids ) ), (int) $key->id );
+                }
+
+                return rest_ensure_response( array(
+                        'ok'       => true,
+                        'messages' => $messages,
+                        'count'    => count( $messages ),
+                        'server_time' => ACLP_Utils::now(),
+                ) );
+        }
+
+        /**
+         * هوش مصنوعی: پاسخ به پیام کاربر.
+         * احراز هویت: فقط کلید. client_uid اختیاری برای اتصال پاسخ به یک سیستم مشخص.
+         */
+        public static function route_chat_reply( $request ) {
+                $key  = ACLP_Auth::authenticate( $request );
+                if ( is_wp_error( $key ) ) {
+                        return $key;
+                }
+                $body = self::body( $request );
+                $text = trim( (string) ( $body['text'] ?? $body['message'] ?? '' ) );
+                if ( '' === $text ) {
+                        return new WP_Error( 'aclp_invalid', 'متن پاسخ (text) الزامی است.', array( 'status' => 400 ) );
+                }
+                $client_id = 0;
+                $uid = trim( (string) ( $body['client_uid'] ?? '' ) );
+                if ( '' !== $uid ) {
+                        $c = ACLP_Clients::get_by_uid( $uid );
+                        if ( $c && (int) $c->key_id === (int) $key->id ) {
+                                $client_id = (int) $c->id;
+                        }
+                }
+                $source = trim( (string) ( $body['source'] ?? '' ) );
+                if ( '' === $source ) {
+                        $source = 'ai';
+                }
+
+                $msg_id = ACLP_Chat::add( array(
+                        'key_id'    => (int) $key->id,
+                        'client_id' => $client_id,
+                        'direction' => 'from_ai',
+                        'body'      => $text,
+                        'files'     => (array) ( $body['files'] ?? array() ),
+                        'source'    => $source,
+                        'ip'        => $_SERVER['REMOTE_ADDR'] ?? '',
+                ) );
+                if ( ! $msg_id ) {
+                        return new WP_Error( 'aclp_db_error', 'ثبت پاسخ ناموفق بود.', array( 'status' => 500 ) );
+                }
+                ACLP_Logger::add( 'chat_reply', 'پاسخ هوش مصنوعی ثبت شد', array( 'source' => $source ), (int) $key->id, $client_id );
+
+                return rest_ensure_response( array( 'ok' => true, 'message_id' => $msg_id ) );
+        }
+
+        /**
+         * ایجنت: دریافت پاسخ‌های هوش مصنوعی (since برای polling).
+         * احراز هویت: کلید + client_uid.
+         */
+        public static function route_chat_replies( $request ) {
+                $key    = ACLP_Auth::authenticate( $request );
+                if ( is_wp_error( $key ) ) {
+                        return $key;
+                }
+                $client = ACLP_Auth::client_from_request( $request, $key );
+                if ( is_wp_error( $client ) ) {
+                        return $client;
+                }
+                $since = (int) $request->get_param( 'since' );
+                $limit = (int) $request->get_param( 'limit' );
+                $order = (string) $request->get_param( 'order' );
+                $rows  = ACLP_Chat::replies_for_client( $key->id, $client->id, $since, $limit > 0 ? $limit : 50, $order );
+
+                $messages = array();
+                foreach ( $rows as $row ) {
+                        $messages[] = ACLP_Chat::api_shape( $row );
+                }
+                ACLP_Clients::touch_online( $client->id );
+
+                return rest_ensure_response( array(
+                        'ok'       => true,
+                        'messages' => $messages,
+                        'server_time' => ACLP_Utils::now(),
+                ) );
         }
 
         /* ---------------------------------------------------------------------

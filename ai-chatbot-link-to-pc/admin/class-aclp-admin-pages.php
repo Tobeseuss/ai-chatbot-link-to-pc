@@ -273,6 +273,13 @@ class ACLP_Admin_Pages {
                 }
                 echo '</tbody></table>';
 
+                // گفتگوی کاربر با هوش مصنوعی (v1.3.0).
+                $chat_stats = ACLP_Chat::stats();
+                echo '<h2>گفتگوی کاربر با هوش مصنوعی</h2>';
+                echo '<p class="description">پیام‌های رد‌وبدل‌شده از طریق برنامه ایجنت («python aclp_agent.py chat»). کاربر پیام/فایل می‌فرستد؛ هوش مصنوعی با GET /chat/pending می‌گیرد و با POST /chat/reply پاسخ می‌دهد.</p>';
+                echo '<p><span class="aclp-badge aclp-badge-blue">' . number_format_i18n( $chat_stats['to_ai'] ) . ' پیام کاربر</span> <span class="aclp-badge aclp-badge-green">' . number_format_i18n( $chat_stats['from_ai'] ) . ' پاسخ هوش مصنوعی</span> <span class="aclp-badge aclp-badge-orange">' . number_format_i18n( $chat_stats['pending'] ) . ' در انتظار تحویل</span></p>';
+                self::chat_table( ACLP_Chat::latest_for_key( $key_id, 20 ), false );
+
                 // آخرین تعاملات این کلید.
                 $q = ACLP_Commands::query( array( 'key_id' => $key_id, 'per_page' => 10 ) );
                 echo '<h2>آخرین تعاملات این کلید</h2>';
@@ -320,6 +327,83 @@ class ACLP_Admin_Pages {
                 echo '</tbody></table>';
 
                 self::footer();
+        }
+
+        /* =====================================================================
+         * گفتگوها (کاربر <-> هوش مصنوعی) — v1.3.0
+         * =================================================================== */
+        public static function render_chats() {
+                self::header( 'گفتگوها' );
+
+                $key_id = isset( $_GET['key_id'] ) ? (int) $_GET['key_id'] : 0;
+                $keys   = (array) ACLP_API_Keys::all();
+
+                echo '<p class="description">هر پیام و فایلی که از طریق برنامه ایجنت (حالت chat) بین کاربر و هوش مصنوعی رد‌وبدل شده است. فایل‌ها به‌صورت لینک مستقیم از روی سایت برای هوش مصنوعی ارسال می‌شوند.</p>';
+
+                // فیلتر بر اساس کلید.
+                echo '<form method="get" class="aclp-filters"><input type="hidden" name="page" value="aclp-chats">';
+                echo '<select name="key_id"><option value="">همه کلیدها</option>';
+                foreach ( $keys as $k ) {
+                        echo '<option value="' . (int) $k->id . '" ' . selected( $key_id, (int) $k->id, false ) . '>' . esc_html( $k->name ) . '</option>';
+                }
+                echo '</select> <button class="button" type="submit">اعمال فیلتر</button></form>';
+
+                $stats = ACLP_Chat::stats();
+                echo '<p><span class="aclp-badge aclp-badge-gray">مجموع: ' . number_format_i18n( $stats['total'] ) . '</span> <span class="aclp-badge aclp-badge-blue">کاربر → هوش مصنوعی: ' . number_format_i18n( $stats['to_ai'] ) . '</span> <span class="aclp-badge aclp-badge-green">هوش مصنوعی → کاربر: ' . number_format_i18n( $stats['from_ai'] ) . '</span> <span class="aclp-badge aclp-badge-orange">در انتظار تحویل: ' . number_format_i18n( $stats['pending'] ) . '</span></p>';
+
+                self::chat_table( ACLP_Chat::latest_for_key( $key_id, 100 ), true );
+
+                self::footer();
+        }
+
+        /**
+         * جدول پیام‌های گفتگو (مشترک بین صفحه گفتگوها و جزئیات کلید).
+         *
+         * @param array $rows     ردیف‌ها.
+         * @param bool  $with_key نمایش ستون کلید.
+         */
+        private static function chat_table( $rows, $with_key = true ) {
+                echo '<table class="widefat striped aclp-table"><thead><tr>
+                        <th>#</th><th>زمان</th>' . ( $with_key ? '<th>کلید</th>' : '' ) . '<th>سیستم</th><th>جهت</th><th>فرستنده</th><th>متن پیام</th><th>فایل‌ها</th><th>وضعیت</th>
+                </tr></thead><tbody>';
+                if ( empty( $rows ) ) {
+                        $cols = $with_key ? 9 : 8;
+                        echo '<tr><td colspan="' . $cols . '">هنوز پیامی ثبت نشده است. کاربر می‌تواند در سیستم خود «python aclp_agent.py chat» را اجرا کند.</td></tr>';
+                }
+                foreach ( (array) $rows as $r ) {
+                        $client = $r->client_id ? ACLP_Clients::get( $r->client_id ) : null;
+                        $key    = ACLP_API_Keys::get( $r->key_id );
+                        $files  = (array) json_decode( (string) $r->files, true );
+                        $dir    = 'to_ai' === $r->direction;
+                        echo '<tr>';
+                        echo '<td>' . (int) $r->id . '</td>';
+                        echo '<td>' . esc_html( mysql2date( 'Y/m/d H:i:s', $r->created_at ) ) . '</td>';
+                        if ( $with_key ) {
+                                echo '<td>' . ( $key ? '<a href="' . esc_url( admin_url( 'admin.php?page=aclp-key-view&key_id=' . (int) $key->id ) ) . '">' . esc_html( $key->name ) . '</a>' : '—' ) . '</td>';
+                        }
+                        echo '<td>' . esc_html( $client ? ( $client->name ?: $client->hostname ) : ( $r->client_id ? '#' . (int) $r->client_id : 'همه سیستم‌ها' ) ) . '</td>';
+                        echo '<td>' . ( $dir ? '<span class="aclp-badge aclp-badge-blue">کاربر → هوش مصنوعی</span>' : '<span class="aclp-badge aclp-badge-green">هوش مصنوعی → کاربر</span>' ) . '</td>';
+                        echo '<td>' . esc_html( $r->source ?: '—' ) . '</td>';
+                        echo '<td style="max-width:420px;white-space:pre-wrap;word-break:break-word">' . esc_html( wp_trim_words( (string) $r->body, 60, '…' ) ) . '</td>';
+                        echo '<td>';
+                        if ( $files ) {
+                                foreach ( $files as $f ) {
+                                        $url = ! empty( $f['url'] ) ? $f['url'] : ( ! empty( $f['download_url'] ) ? $f['download_url'] : '' );
+                                        echo $url ? '<a href="' . esc_url( $url ) . '" target="_blank">' . esc_html( $f['filename'] ?: ( 'فایل #' . (int) $f['file_id'] ) ) . '</a><br>' : esc_html( $f['filename'] ?: ( 'فایل #' . (int) $f['file_id'] ) ) . '<br>';
+                                }
+                        } else {
+                                echo '—';
+                        }
+                        echo '</td>';
+                        echo '<td>';
+                        if ( 'to_ai' === $r->direction ) {
+                                echo 'new' === $r->status ? '<span class="aclp-badge aclp-badge-orange">در انتظار تحویل</span>' : '<span class="aclp-badge aclp-badge-gray">تحویل‌شده</span>';
+                        } else {
+                                echo '<span class="aclp-badge aclp-badge-gray">—</span>';
+                        }
+                        echo '</td></tr>';
+                }
+                echo '</tbody></table>';
         }
 
         /* =====================================================================

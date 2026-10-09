@@ -138,7 +138,7 @@ class ACLP_Utils {
                 }
                 $api_key_ph = 'PASTE_YOUR_REAL_API_KEY_HERE';
                 $key_line   = $api_key
-                        ? '- API key:  ' . $api_key . '   (already provided — use it as the X-ACLP-Key header value)'
+                        ? '- API key:  ' . $api_key . '   (already provided — send it as "Authorization: Bearer <key>")'
                         : "- API key:  {$api_key_ph}\n"
                           . "- If the API key above is a placeholder (empty/invalid), STOP and ask the user to copy a real key\n"
                           . "  from WordPress admin -> AI-PC Link -> API Keys (the full key is visible there and can be copied).\n"
@@ -160,6 +160,11 @@ Read ONLY your mode's section below, then follow it literally, step by step.
 ## Connection settings (both modes)
 - Base URL:  {SITE_URL}/wp-json/aclp/v1
 {KEY_LINE}
+- Authentication header (IMPORTANT): prefer the STANDARD header, because some
+  web hosts strip custom headers:
+      Authorization: Bearer <the API key>
+  The custom header "X-ACLP-Key: <key>" is ALSO accepted if you cannot set
+  Authorization. Content-Type: application/json for JSON bodies.
 - HTTPS is preferred. If HTTPS fails with a connection/SSL error, automatically retry the same
   request over HTTP (the server supports both).
 
@@ -167,9 +172,10 @@ Read ONLY your mode's section below, then follow it literally, step by step.
 ## MODE A — you can execute code (Python/curl/etc.)
 =====================================================================
 
-### How to call the PC (always use these two headers)
-    X-ACLP-Key: <the API key>
-    Content-Type: application/json
+### How to call the PC (auth header)
+    Authorization: Bearer <the API key>      (preferred — standard header)
+    X-ACLP-Key: <the API key>                (also accepted)
+    Content-Type: application/json           (for JSON bodies)
 
 1) Send one action:  POST {SITE_URL}/wp-json/aclp/v1/commands
    Body: {"type": "<action>", "payload": {...}, "wait": true, "timeout": 25}
@@ -180,8 +186,24 @@ Read ONLY your mode's section below, then follow it literally, step by step.
    or "broadcast": true to target all online PCs at once).
 4) Send a file TO the PC:  POST /files (multipart field "file") -> get file_id ->
    send command {"type": "file_download", "payload": {"file_id": <id>, "save_path": "C:/.../name.ext"}}.
-5) Files the PC produced appear in result.files[] with a "url"; download them with
-   GET /files/{file_id} using the same X-ACLP-Key header.
+5) Files the PC produced appear in result.files[] with a "url" AND a "download_url";
+   "download_url" is a signed link that needs NO headers — you can download it directly
+   (browser/curl/wget) even if you cannot send custom headers.
+
+### Talking with the USER directly (optional)
+If the user is chatting through the agent program on the PC (they ran
+"python aclp_agent.py chat"), you can exchange messages with them:
+1) Get new user messages:  GET /chat/pending?wait=25   (long-poll up to 25s)
+   -> {"messages": [{"id": N, "text": "...", "files": [{"file_id": N, "url": "...",
+      "filename": "...", "download_url": "..."}], "client": {"name": "..."}}]}
+   "wait": 0 returns immediately; files arrive as direct download links on the site.
+2) Reply:  POST /chat/send is NOT yours — you reply with:
+   POST {SITE_URL}/wp-json/aclp/v1/chat/reply
+   Body: {"text": "your reply", "client_uid": "<uid from message.client or omit>",
+          "source": "<your model name e.g. GPT-4o>"}
+3) Poll /chat/pending again for the user's next message. This is a real-time
+   chat channel IN ADDITION to commands — use it when the user wants to talk,
+   not when they want an action on the PC.
 
 =====================================================================
 ## MODE B — TEXT-ONLY chatbot (you cannot run anything)
@@ -224,6 +246,7 @@ shell also accepts {"elevated": true} to run with elevation when the user config
 ## Rules
 - Prefer "wait": true + polling (MODE A) or waiting for the user's paste (MODE B) instead of guessing results.
 - Explain to the user what you are about to run on their PC before running it.
+- File links: files you receive include "download_url" — a signed link that works without any header.
 - Full API reference (open it if unsure): {REPO_URL}/blob/main/docs/AGENT-API.md
 - Project repository: {REPO_URL}
 - If you need a capability that the bridge does not have yet, tell the user; qualified agents
@@ -233,7 +256,7 @@ PROMPT;
                 $prompt = str_replace(
                         array( '{VERSION}', '{SITE_URL}', '{KEY_LINE}', '{API_KEY_PH}', '{REPO_URL}' ),
                         array(
-                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '1.2.0',
+                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '1.3.0',
                                 untrailingslashit( (string) $site_url ),
                                 $key_line,
                                 $api_key_ph,
