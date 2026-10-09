@@ -148,15 +148,23 @@ class ACLP_REST {
         /**
          * متن آماده معرفی پل به ایجنت هوش مصنوعی (اصل اساسی ۴).
          * عمومی است تا ضعیف‌ترین ایجنت‌ها هم بتوانند با یک GET آن را بگیرند.
+         * پارامتر اختیاری api_key: کلید واقعی را داخل متن جای‌گذاری می‌کند.
          */
         public static function route_agent_prompt( $request ) {
+                $api_key = (string) $request->get_param( 'api_key' );
+                if ( '' !== $api_key ) {
+                        $check = ACLP_API_Keys::get_by_plain( $api_key );
+                        if ( ! $check ) {
+                                return new WP_Error( 'aclp_invalid_key', 'کلید API نامعتبر است.', array( 'status' => 401 ) );
+                        }
+                }
                 return rest_ensure_response( array(
                         'ok'        => true,
                         'version'   => ACLP_VERSION,
-                        'usage'     => 'Feed this text to any AI/LLM agent so it can use the PC bridge. Replace the API key placeholder with a real key from WordPress admin, or leave it empty so the agent asks the user.',
+                        'usage'     => 'Feed this text to any AI/LLM agent so it can use the PC bridge. Pass ?api_key=... to embed a real key, or leave it out so the agent asks the user.',
                         'docs_url'  => untrailingslashit( (string) ACLP_Settings::get( 'github_repo_url' ) ) . '/blob/main/docs/AGENT-API.md',
                         'repo_url'  => untrailingslashit( (string) ACLP_Settings::get( 'github_repo_url' ) ),
-                        'prompt'    => ACLP_Utils::agent_prompt(),
+                        'prompt'    => ACLP_Utils::agent_prompt( '', $api_key ),
                 ) );
         }
 
@@ -206,6 +214,7 @@ class ACLP_REST {
                         'hostname'       => isset( $body['hostname'] ) ? $body['hostname'] : '',
                         'python_version' => isset( $body['python_version'] ) ? $body['python_version'] : '',
                         'agent_version'  => isset( $body['agent_version'] ) ? $body['agent_version'] : '',
+                        'ai_model'       => isset( $body['ai_model'] ) ? $body['ai_model'] : '',
                         'capabilities'   => isset( $body['capabilities'] ) ? $body['capabilities'] : array(),
                 ) );
 
@@ -389,15 +398,21 @@ class ACLP_REST {
                 }
                 $clients = array();
                 foreach ( ACLP_Clients::for_key( $key->id ) as $c ) {
+                        $caps = json_decode( (string) $c->capabilities, true );
                         $clients[] = array(
-                                'client_uid'   => $c->client_uid,
-                                'name'         => $c->name,
-                                'os'           => $c->os . ( $c->os_version ? ' ' . $c->os_version : '' ),
-                                'hostname'     => $c->hostname,
-                                'online'       => ACLP_Utils::client_is_online( $c ),
-                                'last_seen_at' => $c->last_seen_at,
+                                'client_uid'     => $c->client_uid,
+                                'name'           => $c->name,
+                                'os'             => $c->os . ( $c->os_version ? ' ' . $c->os_version : '' ),
+                                'hostname'       => $c->hostname,
+                                'ip'             => $c->ip,
+                                'online'         => ACLP_Utils::client_is_online( $c ),
+                                'last_seen_at'   => $c->last_seen_at,
                                 'commands_total' => (int) $c->commands_total,
                                 'registered_at'  => $c->registered_at,
+                                'agent_version'  => $c->agent_version,
+                                'python_version' => $c->python_version,
+                                'ai_model'       => $c->ai_model,
+                                'capabilities'   => is_array( $caps ) ? $caps : array(),
                         );
                 }
                 return rest_ensure_response( array( 'ok' => true, 'clients' => $clients ) );

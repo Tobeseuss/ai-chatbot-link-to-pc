@@ -38,6 +38,8 @@ class ACLP_Admin {
                 add_submenu_page( 'aclp', 'سیستم‌های متصل', 'سیستم‌های متصل', 'manage_options', 'aclp-clients', array( 'ACLP_Admin_Pages', 'render_clients' ) );
                 add_submenu_page( 'aclp', 'تاریخچه تعاملات', 'تاریخچه تعاملات', 'manage_options', 'aclp-history', array( 'ACLP_Admin_Pages', 'render_history' ) );
                 add_submenu_page( 'aclp', 'تنظیمات', 'تنظیمات', 'manage_options', 'aclp-settings', array( 'ACLP_Admin_Pages', 'render_settings' ) );
+                // صفحه مخفی جزئیات هر کلید (از طریق لینک «جزئیات و اتصال‌ها» باز می‌شود).
+                add_submenu_page( null, 'جزئیات کلید API', 'جزئیات کلید', 'manage_options', 'aclp-key-view', array( 'ACLP_Admin_Pages', 'render_key_detail' ) );
         }
 
         /**
@@ -94,7 +96,7 @@ class ACLP_Admin {
                         self::redirect( 'aclp-keys', '', $result->get_error_message() );
                 }
 
-                // نمایش کلید فقط یک‌بار.
+                // نمایش کلید تازه ساخته‌شده (از صفحه کلیدها همیشه هم قابل مشاهده و کپی است).
                 set_transient( 'aclp_new_key_' . get_current_user_id(), $result['plain'], 300 );
                 self::redirect( 'aclp-keys', 'key_created' );
         }
@@ -257,7 +259,7 @@ class ACLP_Admin_Notices {
                         $plain = get_transient( 'aclp_new_key_' . get_current_user_id() );
                         if ( $plain ) {
                                 delete_transient( 'aclp_new_key_' . get_current_user_id() );
-                                echo '<div class="notice notice-success aclp-key-notice"><p><strong>کلید API ساخته شد!</strong> این مقدار فقط همین یک‌بار نمایش داده می‌شود — همین حالا آن را کپی و در جای امن ذخیره کنید:</p>';
+                                echo '<div class="notice notice-success aclp-key-notice"><p><strong>کلید API ساخته شد!</strong> این مقدار همیشه در جدول پایین هم قابل مشاهده و کپی است:</p>';
                                 echo '<p><code class="aclp-key-plain" id="aclp-new-key">' . esc_html( $plain ) . '</code> <button type="button" class="button aclp-copy-key" data-target="aclp-new-key">کپی</button></p>';
                                 echo '<p class="description">⚠️ هرکس این کلید را داشته باشد، کنترل کامل سیستم متصل به آن را در اختیار می‌گیرد. هرگز آن را عمومی نکنید.</p></div>';
                         }

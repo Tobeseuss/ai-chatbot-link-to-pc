@@ -65,10 +65,36 @@ class ACLP_Admin_Pages {
                 echo '</div>';
 
                 // متن آماده معرفی پل به ایجنت هوش مصنوعی (اصل اساسی شماره ۴).
-                $prompt_id = 'aclp-agent-prompt-text';
+                // آدرس سایت به‌صورت خودکار جای‌گذاری می‌شود؛ کاربر کلید موردنظر را از
+                // منوی کشویی انتخاب می‌کند و متن + دستورات بر اساس همان کلید ساخته و کپی می‌شوند.
+                $prompt_id    = 'aclp-agent-prompt-text';
+                $template_id  = 'aclp-agent-prompt-template';
+                $select_id    = 'aclp-prompt-key-select';
+                $keys         = (array) ACLP_API_Keys::all();
+                $active_keys  = array_values( array_filter( $keys, function ( $k ) { return (int) $k->is_active; } ) );
+
                 echo '<div class="card aclp-guide aclp-agent-prompt"><h2>🤖 نحوه اعلام نحوه استفاده از پل به ایجنت هوش مصنوعی</h2>';
-                echo '<p class="description">متن زیر را کپی کنید و به هر هوش مصنوعی / LLM / ایجنتی که می‌خواهید کنترل سیستم را داشته باشد بدهید. جای خالی <code>API key</code> عمداً خالی است تا خود ایجنت از شما سوال کند. این متن با هر بروزرسانی پلاگین هماهنگ می‌شود و از مسیر <code>GET ' . esc_html( $rest_url ) . '/agent-prompt</code> هم قابل دریافت است.</p>';
-                echo '<p><button type="button" class="button button-primary aclp-copy-key" data-target="' . esc_attr( $prompt_id ) . '">کپی متن آماده</button></p>';
+                echo '<p class="description">آدرس سایت به‌صورت خودکار در متن جای‌گذاری شده است. کلید API موردنظر را از منوی زیر انتخاب کنید تا متن و دستورات آماده بر اساس همان کلید ساخته شوند؛ سپس متن را کپی کنید و به هر هوش مصنوعی / LLM / ایجنتی که می‌خواهید کنترل سیستم را داشته باشد بدهید. این متن شامل دو حالت است: حالت A برای چت‌بات‌هایی که می‌توانند کد اجرا کنند و حالت B (رله) برای چت‌بات‌های فقط-متنی. متن با هر بروزرسانی پلاگین هماهنگ می‌شود و از مسیر <code>GET ' . esc_html( $rest_url ) . '/agent-prompt</code> هم قابل دریافت است.</p>';
+
+                // انتخابگر کلید API.
+                echo '<p style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><label for="' . esc_attr( $select_id ) . '"><strong>کلید API برای این متن:</strong></label> ';
+                echo '<select id="' . esc_attr( $select_id ) . '" style="min-width:280px;direction:ltr">';
+                echo '<option value="">' . esc_html( 'PASTE_YOUR_REAL_API_KEY_HERE (ایجنت از شما می‌پرسد)' ) . '</option>';
+                foreach ( $active_keys as $k ) {
+                        $plain = (string) ( $k->key_plain ?? '' );
+                        if ( '' === $plain ) {
+                                continue; // کلیدهای قدیمی بدون مقدار کامل در انتخابگر نمی‌آیند.
+                        }
+                        echo '<option value="' . esc_attr( $plain ) . '">' . esc_html( $k->name . ' — ' . $plain ) . '</option>';
+                }
+                if ( empty( $active_keys ) ) {
+                        echo '<option value="" disabled>' . esc_html( '— هنوز کلید فعالی ندارید —' ) . '</option>';
+                }
+                echo '</select>';
+                echo '<button type="button" class="button button-primary aclp-copy-key" data-target="' . esc_attr( $prompt_id ) . '">کپی متن آماده</button></p>';
+
+                // قالب خام (با جای‌نگهدار کلید) — جاوااسکریپت کلید انتخابی را جای‌گذاری می‌کند.
+                echo '<script type="text/template" id="' . esc_attr( $template_id ) . '">' . esc_html( ACLP_Utils::agent_prompt() ) . '</script>';
                 echo '<pre id="' . esc_attr( $prompt_id ) . '" class="aclp-json" style="max-height:340px;overflow:auto;direction:ltr;text-align:left">' . esc_html( ACLP_Utils::agent_prompt() ) . '</pre>';
                 echo '</div>';
 
@@ -99,7 +125,7 @@ class ACLP_Admin_Pages {
                 self::header( 'کلیدهای API' );
                 $keys = (array) ACLP_API_Keys::all();
 
-                echo '<p class="description">هر کلید API مستقل است و می‌تواند به یک یا چند سیستم متصل شود. با هر کلید می‌توانید سقف تعداد سیستم‌ها را هم مشخص کنید (۰ = نامحدود).</p>';
+                echo '<p class="description">هر کلید API مستقل است و می‌تواند به یک یا چند سیستم متصل شود. با هر کلید می‌توانید سقف تعداد سیستم‌ها را هم مشخص کنید (۰ = نامحدود). طبق درخواست مالک، مقدار کامل همه کلیدها همیشه در همین صفحه نمایش داده می‌شود و در هر زمان قابل کپی است.</p>';
 
                 // فرم ساخت کلید.
                 echo '<div class="card aclp-form-card"><h2>ساخت کلید جدید</h2><form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
@@ -116,7 +142,7 @@ class ACLP_Admin_Pages {
                 // جدول کلیدها.
                 echo '<h2>کلیدهای موجود (' . count( $keys ) . ')</h2>';
                 echo '<table class="widefat striped aclp-table"><thead><tr>
-                        <th>نام</th><th>کلید</th><th>وضعیت</th><th>سقف سیستم‌ها</th><th>آخرین استفاده</th><th>تاریخ ساخت</th><th>عملیات</th>
+                        <th>نام</th><th>کلید کامل (قابل کپی)</th><th>وضعیت</th><th>سقف سیستم‌ها</th><th>آخرین استفاده</th><th>تاریخ ساخت</th><th>عملیات</th>
                 </tr></thead><tbody>';
 
                 if ( empty( $keys ) ) {
@@ -124,9 +150,20 @@ class ACLP_Admin_Pages {
                 }
                 foreach ( $keys as $k ) {
                         $active = (int) $k->is_active;
+                        $plain  = (string) ( $k->key_plain ?? '' );
+                        $detail = admin_url( 'admin.php?page=aclp-key-view&key_id=' . (int) $k->id );
                         echo '<tr>';
-                        echo '<td><strong>' . esc_html( $k->name ) . '</strong>' . ( $k->notes ? '<br><span class="description">' . esc_html( $k->notes ) . '</span>' : '' ) . '</td>';
-                        echo '<td><code>' . esc_html( $k->key_prefix ) . '</code></td>';
+                        echo '<td><strong>' . esc_html( $k->name ) . '</strong>' . ( $k->notes ? '<br><span class="description">' . esc_html( $k->notes ) . '</span>' : '' );
+                        echo '<br><a href="' . esc_url( $detail ) . '">📊 جزئیات و اتصال‌ها</a></td>';
+                        echo '<td>';
+                        if ( '' !== $plain ) {
+                                echo '<code class="aclp-key-plain" id="aclp-key-' . (int) $k->id . '" style="word-break:break-all;direction:ltr;display:inline-block">' . esc_html( $plain ) . '</code> ';
+                                echo '<button type="button" class="button button-small aclp-copy-key" data-target="aclp-key-' . (int) $k->id . '">کپی</button>';
+                        } else {
+                                echo '<code>' . esc_html( $k->key_prefix ) . '</code>';
+                                echo '<p class="description">این کلید قبل از نسخه ۱.۲.۰ ساخته شده و مقدار کاملش ذخیره نبوده. اگر مقدار کامل را جای دیگری نگه داشته‌اید از آن استفاده کنید؛ در غیر این صورت یک کلید جدید بسازید.</p>';
+                        }
+                        echo '</td>';
                         echo '<td>' . ( $active ? '<span class="aclp-badge aclp-badge-green">فعال</span>' : '<span class="aclp-badge aclp-badge-red">غیرفعال</span>' ) . '</td>';
                         echo '<td>' . ( (int) $k->max_clients ? (int) $k->max_clients : 'نامحدود' ) . '</td>';
                         echo '<td>' . esc_html( $k->last_used_at ? mysql2date( 'Y/m/d H:i', $k->last_used_at ) : '—' ) . '</td>';
@@ -148,6 +185,103 @@ class ACLP_Admin_Pages {
         }
 
         /* =====================================================================
+         * جزئیات یک کلید: اتصال‌ها، مشخصات ایجنت/هوش مصنوعی، استفاده دوطرفه
+         * =================================================================== */
+        public static function render_key_detail() {
+                $key_id = isset( $_GET['key_id'] ) ? (int) $_GET['key_id'] : 0;
+                $key    = ACLP_API_Keys::get( $key_id );
+                self::header( 'جزئیات کلید API' );
+                if ( ! $key ) {
+                        echo '<p>کلید یافت نشد.</p><p><a class="button" href="' . esc_url( admin_url( 'admin.php?page=aclp-keys' ) ) . '">← بازگشت به کلیدها</a></p>';
+                        self::footer();
+                        return;
+                }
+
+                $plain  = (string) ( $key->key_plain ?? '' );
+                $stats  = ACLP_API_Keys::usage_stats( $key_id );
+                $clients = (array) ACLP_Clients::for_key( $key_id );
+
+                echo '<p><a class="button" href="' . esc_url( admin_url( 'admin.php?page=aclp-keys' ) ) . '">← بازگشت به کلیدها</a></p>';
+                echo '<div class="card"><h2>کلید: ' . esc_html( $key->name ) . '</h2>';
+
+                // مقدار کامل کلید + دکمه کپی (همیشه قابل مشاهده — درخواست مالک).
+                echo '<table class="widefat striped" style="max-width:900px"><tbody>';
+                echo '<tr><th style="width:180px">کلید کامل</th><td>';
+                if ( '' !== $plain ) {
+                        echo '<code class="aclp-key-plain" id="aclp-key-detail-' . (int) $key->id . '" style="word-break:break-all;direction:ltr;display:inline-block">' . esc_html( $plain ) . '</code> ';
+                        echo '<button type="button" class="button button-small aclp-copy-key" data-target="aclp-key-detail-' . (int) $key->id . '">کپی کلید</button>';
+                } else {
+                        echo '<code>' . esc_html( $key->key_prefix ) . '</code> <span class="description">فقط پیشوند ذخیره شده (کلید قدیمی).</span>';
+                }
+                echo '</td></tr>';
+                echo '<tr><th>وضعیت</th><td>' . ( (int) $key->is_active ? '<span class="aclp-badge aclp-badge-green">فعال</span>' : '<span class="aclp-badge aclp-badge-red">غیرفعال</span>' ) . '</td></tr>';
+                echo '<tr><th>سقف سیستم‌ها</th><td>' . ( (int) $key->max_clients ? (int) $key->max_clients : 'نامحدود' ) . '</td></tr>';
+                echo '<tr><th>آخرین استفاده از کلید</th><td>' . esc_html( $key->last_used_at ? mysql2date( 'Y/m/d H:i:s', $key->last_used_at ) . ' UTC' : '—' ) . '</td></tr>';
+                echo '</tbody></table></div>';
+
+                // استفاده دوطرفه و آمار ترافیک.
+                $bi_cls = 'aclp-badge aclp-badge-gray';
+                if ( 'full' === $stats['bidirectional'] ) { $bi_cls = 'aclp-badge aclp-badge-green'; }
+                elseif ( 'partial' === $stats['bidirectional'] ) { $bi_cls = 'aclp-badge aclp-badge-blue'; }
+                elseif ( 'one_way' === $stats['bidirectional'] ) { $bi_cls = 'aclp-badge aclp-badge-orange'; }
+
+                echo '<h2>استفاده دوطرفه و ترافیک</h2>';
+                echo '<div class="aclp-cards">';
+                self::card( number_format_i18n( $stats['commands'] ), 'فرمان ارسالی (چت‌بات → سیستم)', '⚡' );
+                self::card( number_format_i18n( $stats['results'] ), 'نتیجه دریافتی (سیستم → چت‌بات)', '📥' );
+                self::card( number_format_i18n( $stats['files_to_pc'] ), 'فایل ارسالی به سیستم', '⬇' );
+                self::card( number_format_i18n( $stats['files_from_pc'] ), 'فایل دریافتی از سیستم', '⬆' );
+                echo '</div>';
+                echo '<p>وضعیت استفاده دوطرفه: <span class="' . $bi_cls . '">' . esc_html( ACLP_API_Keys::bidirectional_label( $stats['bidirectional'] ) ) . '</span>';
+                if ( $stats['last_activity'] ) {
+                        echo ' — آخرین فعالیت: ' . esc_html( mysql2date( 'Y/m/d H:i:s', $stats['last_activity'] ) ) . ' UTC';
+                }
+                echo '</p>';
+
+                // هوش مصنوعی‌ها / منابعی که از این کلید استفاده کرده‌اند.
+                echo '<h2>هوش مصنوعی‌ها و منابع در ارتباط (از روی ستون «منبع» فرمان‌ها)</h2>';
+                if ( empty( $stats['sources'] ) ) {
+                        echo '<p>هنوز هیچ فرمانی از این کلید صادر نشده است.</p>';
+                } else {
+                        echo '<p>' . esc_html( implode( '، ', $stats['sources'] ) ) . '</p>';
+                }
+
+                // سیستم‌های متصل به این کلید.
+                echo '<h2>سیستم‌های متصل به این کلید (' . count( $clients ) . ')</h2>';
+                echo '<table class="widefat striped aclp-table"><thead><tr>
+                        <th>نام</th><th>اتصال ایجنت</th><th>سیستم‌عامل</th><th>نام میزبان</th><th>IP</th><th>نسخه ایجنت</th><th>هوش مصنوعی کنترل‌کننده</th><th>قابلیت‌ها</th><th>تعداد فرمان</th><th>آخرین حضور</th>
+                </tr></thead><tbody>';
+                if ( empty( $clients ) ) {
+                        echo '<tr><td colspan="10">هنوز هیچ سیستمی با این کلید متصل نشده است. ایجنت را روی سیستم نصب و با همین کلید اجرا کنید.</td></tr>';
+                }
+                foreach ( $clients as $c ) {
+                        $online = ACLP_Utils::client_is_online( $c );
+                        $caps   = json_decode( (string) $c->capabilities, true );
+                        $n_caps = is_array( $caps ) ? count( $caps ) : 0;
+                        echo '<tr>';
+                        echo '<td><strong>' . esc_html( $c->name ?: 'بدون نام' ) . '</strong></td>';
+                        echo '<td>' . ( $online ? '<span class="aclp-badge aclp-badge-green">متصل (آنلاین)</span>' : '<span class="aclp-badge aclp-badge-gray">ثبت‌شده — آفلاین</span>' ) . '</td>';
+                        echo '<td>' . esc_html( trim( $c->os . ' ' . $c->os_version ) ) . '</td>';
+                        echo '<td>' . esc_html( $c->hostname ) . '</td>';
+                        echo '<td>' . esc_html( $c->ip ) . '</td>';
+                        echo '<td>' . esc_html( $c->agent_version ?: '—' ) . '</td>';
+                        echo '<td>' . esc_html( $c->ai_model ?: '—' ) . '</td>';
+                        echo '<td>' . esc_html( $n_caps ? sprintf( '%d اکشن', $n_caps ) : '—' ) . '</td>';
+                        echo '<td>' . number_format_i18n( (int) $c->commands_total ) . '</td>';
+                        echo '<td>' . esc_html( $c->last_seen_at ? mysql2date( 'Y/m/d H:i:s', $c->last_seen_at ) . ' UTC' : '—' ) . '</td>';
+                        echo '</tr>';
+                }
+                echo '</tbody></table>';
+
+                // آخرین تعاملات این کلید.
+                $q = ACLP_Commands::query( array( 'key_id' => $key_id, 'per_page' => 10 ) );
+                echo '<h2>آخرین تعاملات این کلید</h2>';
+                self::commands_table( $q['rows'], true );
+
+                self::footer();
+        }
+
+        /* =====================================================================
          * سیستم‌های متصل
          * =================================================================== */
         public static function render_clients() {
@@ -157,22 +291,24 @@ class ACLP_Admin_Pages {
                 echo '<p class="description">هر خط یک سیستم (ویندوز یا لینوکس) است که با برنامه ایجنت به یکی از کلیدهای شما متصل شده. چند سیستم می‌توانند همزمان از یک کلید استفاده کنند.</p>';
 
                 echo '<table class="widefat striped aclp-table"><thead><tr>
-                        <th>نام</th><th>سیستم‌عامل</th><th>نام میزبان</th><th>IP</th><th>وضعیت</th><th>نسخه ایجنت</th><th>تعداد فرمان‌ها</th><th>آخرین حضور</th><th>عملیات</th>
+                        <th>نام</th><th>کلید</th><th>سیستم‌عامل</th><th>نام میزبان</th><th>IP</th><th>وضعیت</th><th>نسخه ایجنت</th><th>هوش مصنوعی کنترل‌کننده</th><th>تعداد فرمان‌ها</th><th>آخرین حضور</th><th>عملیات</th>
                 </tr></thead><tbody>';
 
                 if ( empty( $clients ) ) {
-                        echo '<tr><td colspan="9">هنوز سیستمی متصل نشده است. ایجنت را روی سیستم خود اجرا کنید.</td></tr>';
+                        echo '<tr><td colspan="11">هنوز سیستمی متصل نشده است. ایجنت را روی سیستم خود اجرا کنید.</td></tr>';
                 }
                 foreach ( $clients as $c ) {
                         $online = ACLP_Utils::client_is_online( $c );
                         $key    = ACLP_API_Keys::get( $c->key_id );
                         echo '<tr>';
-                        echo '<td><strong>' . esc_html( $c->name ?: 'بدون نام' ) . '</strong><br><span class="description">کلید: ' . esc_html( $key ? $key->name : 'حذف‌شده' ) . '</span></td>';
+                        echo '<td><strong>' . esc_html( $c->name ?: 'بدون نام' ) . '</strong></td>';
+                        echo '<td>' . esc_html( $key ? $key->name : 'حذف‌شده' ) . '</td>';
                         echo '<td>' . esc_html( trim( $c->os . ' ' . $c->os_version ) ) . '</td>';
                         echo '<td>' . esc_html( $c->hostname ) . '</td>';
                         echo '<td>' . esc_html( $c->ip ) . '</td>';
                         echo '<td>' . ( $online ? '<span class="aclp-badge aclp-badge-green">آنلاین</span>' : '<span class="aclp-badge aclp-badge-gray">آفلاین</span>' ) . '</td>';
                         echo '<td>' . esc_html( $c->agent_version ?: '—' ) . '</td>';
+                        echo '<td>' . esc_html( $c->ai_model ?: '—' ) . '</td>';
                         echo '<td>' . number_format_i18n( (int) $c->commands_total ) . '</td>';
                         echo '<td>' . esc_html( $c->last_seen_at ? mysql2date( 'Y/m/d H:i:s', $c->last_seen_at ) . ' UTC' : '—' ) . '</td>';
                         echo '<td><form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
@@ -364,11 +500,12 @@ class ACLP_Admin_Pages {
                 echo '</tbody></table>';
 
                 echo '<h2 class="title">یکپارچگی گیت‌هاب (برای ایجنت‌های توسعه‌دهنده)</h2>';
-                echo '<p class="description">ایجنت‌های هوش مصنوعیِ متصل به پل می‌توانند با این اطلاعات، تغییرات خود را در ریپوی پروژه کامیت کنند و نسخه جدید منتشر کنند (اصل اساسی ۳). PAT باید دسترسی کامل خواندن/نوشتن به تمام بخش‌ها داشته باشد (به‌جز مواردی که گیت‌هاب فقط خواندن می‌دهد).</p>';
+                echo '<p class="description">ایجنت‌های هوش مصنوعیِ متصل به پل می‌توانند با این اطلاعات، تغییرات خود را در ریپوی پروژه کامیت کنند و نسخه جدید منتشر کنند (اصل اساسی ۳). PAT باید دسترسی کامل خواندن/نوشتن به تمام بخش‌ها داشته باشد (به‌جز مواردی که گیت‌هاب فقط خواندن می‌دهد). طبق درخواست مالک، PAT همیشه قابل مشاهده و کپی است.</p>';
                 echo '<table class="form-table"><tbody>';
                 echo '<tr><th><label for="github_repo_url">آدرس ریپوی رسمی</label></th><td><input type="text" id="github_repo_url" name="github_repo_url" value="' . esc_attr( $s['github_repo_url'] ) . '" class="regular-text code" dir="ltr"></td></tr>';
-                echo '<tr><th><label for="github_pat">توکن PAT گیت‌هاب</label></th><td><input type="text" id="github_pat" name="github_pat" value="' . esc_attr( $s['github_pat'] ) . '" class="regular-text code" dir="ltr" autocomplete="off" placeholder="github_pat_...">';
-                echo ' <span class="description">ایجنت‌ها این توکن را از مسیر <code>GET ' . esc_html( rest_url( 'aclp/v1' ) ) . '/github-integration</code> دریافت می‌کنند. اگر خالی باشد، از شما می‌پرسند.</span></td></tr>';
+                echo '<tr><th><label for="github_pat">توکن PAT گیت‌هاب</label></th><td style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><input type="text" id="github_pat" name="github_pat" value="' . esc_attr( $s['github_pat'] ) . '" class="regular-text code" dir="ltr" autocomplete="off" placeholder="github_pat_...">';
+                echo '<button type="button" class="button button-small aclp-copy-val" data-target="github_pat">کپی PAT</button></td></tr>';
+                echo '<tr><th></th><td><span class="description">ایجنت‌ها این توکن را از مسیر <code>GET ' . esc_html( rest_url( 'aclp/v1' ) ) . '/github-integration</code> دریافت می‌کنند. اگر خالی باشد، از شما می‌پرسند.</span></td></tr>';
                 echo '</tbody></table>';
 
                 echo '<h2 class="title">خطرناک</h2>';

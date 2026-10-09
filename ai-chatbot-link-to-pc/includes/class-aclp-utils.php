@@ -128,14 +128,21 @@ class ACLP_Utils {
          *   2) بخش ابتدای README.md ریپو
          *   3) docs/AGENT-API.md (مرجع کامل)
          *
-         * @param string $site_url آدرس سایت (خالی = سایت فعلی).
+         * @param string $site_url آدرس سایت (خالی = سایت فعلی) — همیشه خودکار جای‌گذاری می‌شود.
+         * @param string $api_key  کلید API (خالی = جای‌نگهدار تا ایجنت از کاربر بپرسد).
          * @return string
          */
-        public static function agent_prompt( $site_url = '' ) {
+        public static function agent_prompt( $site_url = '', $api_key = '' ) {
                 if ( ! $site_url ) {
                         $site_url = home_url();
                 }
                 $api_key_ph = 'PASTE_YOUR_REAL_API_KEY_HERE';
+                $key_line   = $api_key
+                        ? '- API key:  ' . $api_key . '   (already provided — use it as the X-ACLP-Key header value)'
+                        : "- API key:  {$api_key_ph}\n"
+                          . "- If the API key above is a placeholder (empty/invalid), STOP and ask the user to copy a real key\n"
+                          . "  from WordPress admin -> AI-PC Link -> API Keys (the full key is visible there and can be copied).\n"
+                          . "  Never guess or invent credentials.";
                 $prompt     = <<<PROMPT
 # INSTRUCTION FOR THE AI AGENT (PC bridge — ACLP v{VERSION})
 
@@ -145,15 +152,22 @@ install software, upload/download files in both directions, open the browser, ma
 the user's network, take screenshots, and more. There are no artificial restrictions by design —
 the user explicitly grants you this access and everything you do is visible to them in a history panel.
 
-## Connection settings
+## 0) First, detect which MODE you are
+- MODE A = you CAN run code / shell / HTTP requests inside your own environment.
+- MODE B = you are a TEXT-ONLY chatbot (you cannot execute anything yourself).
+Read ONLY your mode's section below, then follow it literally, step by step.
+
+## Connection settings (both modes)
 - Base URL:  {SITE_URL}/wp-json/aclp/v1
-- API key:   {API_KEY_PH}
-- If the API key above is empty or invalid, STOP and ask the user to copy a key from
-  WordPress admin -> AI-PC Link -> API Keys. Never guess or invent credentials.
+{KEY_LINE}
 - HTTPS is preferred. If HTTPS fails with a connection/SSL error, automatically retry the same
   request over HTTP (the server supports both).
 
-## How to call the PC (always use these two headers)
+=====================================================================
+## MODE A — you can execute code (Python/curl/etc.)
+=====================================================================
+
+### How to call the PC (always use these two headers)
     X-ACLP-Key: <the API key>
     Content-Type: application/json
 
@@ -169,7 +183,33 @@ the user explicitly grants you this access and everything you do is visible to t
 5) Files the PC produced appear in result.files[] with a "url"; download them with
    GET /files/{file_id} using the same X-ACLP-Key header.
 
-## Available action types (the "type" field)
+=====================================================================
+## MODE B — TEXT-ONLY chatbot (you cannot run anything)
+=====================================================================
+You will use the USER as your hands. The user runs the ACLP agent (aclp_agent.py)
+on the connected PC. For EVERY single step:
+
+1) You output EXACTLY ONE terminal command inside one fenced code block. Pick one of:
+       python aclp_agent.py relay shell <command words here>
+       python aclp_agent.py relay <action>
+       python aclp_agent.py relay <action> --json {"one":"line","json":"payload"}
+   Examples:
+       python aclp_agent.py relay shell dir
+       python aclp_agent.py relay sysinfo
+       python aclp_agent.py relay shell git status
+       python aclp_agent.py relay file_list --json {"path": "C:/Users"}
+   <action> is any action from the list below. For "shell" just write the command words
+   after it (no quotes needed). For other actions with parameters use --json with ONE
+   line of JSON. For actions without parameters write only the action name.
+2) Tell the user in one short sentence: "Copy this into the terminal of the connected PC,
+   run it, then paste the whole JSON output back to me."
+3) When the user pastes the JSON back, read the "result" field (or "error") and continue
+   with the next single command. NEVER output more than one command block at a time and
+   NEVER invent the output — always wait for the user's paste.
+
+=====================================================================
+## Available action types (the "type" field) — both modes
+=====================================================================
 ping, sysinfo, shell {"command": "..."}, run_python {"code": "..."},
 file_read {"path": "..."}, file_write {"path": "...", "content_base64": "..."},
 file_list {"path": "..."}, file_delete {"path": "...", "recursive": false},
@@ -182,7 +222,7 @@ privilege_status {}, privilege_run {"command": "..."} (elevated/administrator ru
 shell also accepts {"elevated": true} to run with elevation when the user configured credentials.
 
 ## Rules
-- Prefer "wait": true + polling instead of guessing results.
+- Prefer "wait": true + polling (MODE A) or waiting for the user's paste (MODE B) instead of guessing results.
 - Explain to the user what you are about to run on their PC before running it.
 - Full API reference (open it if unsure): {REPO_URL}/blob/main/docs/AGENT-API.md
 - Project repository: {REPO_URL}
@@ -191,10 +231,11 @@ shell also accepts {"elevated": true} to run with elevation when the user config
 PROMPT;
 
                 $prompt = str_replace(
-                        array( '{VERSION}', '{SITE_URL}', '{API_KEY_PH}', '{REPO_URL}' ),
+                        array( '{VERSION}', '{SITE_URL}', '{KEY_LINE}', '{API_KEY_PH}', '{REPO_URL}' ),
                         array(
-                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '1.1.0',
+                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '1.2.0',
                                 untrailingslashit( (string) $site_url ),
+                                $key_line,
                                 $api_key_ph,
                                 untrailingslashit( (string) ACLP_Settings::get( 'github_repo_url', 'https://github.com/Tobeseuss/ai-chatbot-link-to-pc' ) ),
                         ),
