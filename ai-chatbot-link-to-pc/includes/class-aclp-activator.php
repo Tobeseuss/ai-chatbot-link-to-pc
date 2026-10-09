@@ -61,6 +61,12 @@ class ACLP_Activator {
                 if ( $columns_clients && ! in_array( 'ai_model', $columns_clients, true ) ) {
                         $wpdb->query( "ALTER TABLE {$wpdb->prefix}aclp_clients ADD COLUMN ai_model VARCHAR(190) NOT NULL DEFAULT '' AFTER agent_version" );
                 }
+
+                // BUGFIX v1.3.0: کلاینت‌های نسخه‌های قبلی با client_uid خالی ثبت شده بودند
+                // (باگ ذخیره‌سازی) — این ردیف‌ها بی‌فایده‌اند و احراز هویت را می‌شکنند؛ پاک می‌شوند.
+                if ( $columns_clients ) {
+                        $wpdb->query( "DELETE FROM {$wpdb->prefix}aclp_clients WHERE client_uid = '' OR client_uid IS NULL" );
+                }
         }
 
         /**
@@ -175,6 +181,27 @@ class ACLP_Activator {
                         KEY event (event),
                         KEY created_at (created_at),
                         KEY key_id (key_id)
+                ) $charset;";
+
+                // پیام‌های گفتگوی کاربر با هوش مصنوعی (v1.3.0).
+                $sql[] = "CREATE TABLE {$p}aclp_chat_messages (
+                        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                        key_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+                        client_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+                        direction VARCHAR(10) NOT NULL DEFAULT 'to_ai',
+                        body TEXT NULL,
+                        files LONGTEXT NULL,
+                        source VARCHAR(190) NOT NULL DEFAULT '',
+                        status VARCHAR(20) NOT NULL DEFAULT 'new',
+                        ip VARCHAR(45) NOT NULL DEFAULT '',
+                        created_at {$now_sql},
+                        delivered_at DATETIME NULL DEFAULT NULL,
+                        PRIMARY KEY  (id),
+                        KEY key_id (key_id),
+                        KEY client_id (client_id),
+                        KEY direction (direction),
+                        KEY status (status),
+                        KEY created_at (created_at)
                 ) $charset;";
 
                 foreach ( $sql as $query ) {

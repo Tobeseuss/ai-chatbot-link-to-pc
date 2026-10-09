@@ -40,6 +40,9 @@ class ACLP_Clients {
 
                 $fields = array(
                         'key_id'         => (int) $key_id,
+                        // BUGFIX v1.3.0: client_uid قبلاً در دیتابیس ذخیره نمی‌شد (همیشه خالی می‌ماند)
+                        // و به همین دلیل احراز هویت کلاینت بعد از ثبت‌نام شکست می‌خورد.
+                        'client_uid'     => substr( (string) ( $data['client_uid'] ?? '' ), 0, 64 ),
                         'name'           => isset( $data['name'] ) ? sanitize_text_field( substr( $data['name'], 0, 190 ) ) : '',
                         'os'             => isset( $data['os'] ) ? sanitize_text_field( substr( $data['os'], 0, 50 ) ) : '',
                         'os_version'     => isset( $data['os_version'] ) ? sanitize_text_field( substr( $data['os_version'], 0, 120 ) ) : '',
