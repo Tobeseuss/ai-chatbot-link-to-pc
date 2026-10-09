@@ -92,3 +92,44 @@
 ### نکات مهم برای ایجنت‌های بعدی
 - ...
 ```
+
+---
+
+## [1.2.0] — 2026-10-09 — ایجنت: Super Z (کدنویس)
+
+**محدوده:** ۵ درخواست جدید مالک: ۱) رفع به‌هم‌ریختگی فارسی کنسول ایجنت، ۲) نمایش دائمی کلیدهای API و PAT با دکمه کپی، ۳) پشتیبانی از چت‌بات‌های فقط-متنی (حالت relay)، ۴) نمای کامل هر کلید API (سیستم‌های متصل، مشخصات ایجنت/هوش مصنوعی، وضعیت استفاده دوطرفه)، ۵) متن اصل ۴ در داشبورد با آدرس سایت خودکار + منوی انتخاب کلید API.
+
+### کارهای انجام‌شده
+
+**ایجنت (aclp_agent.py → v1.2.0):**
+- کنسول فارسی: `_console_setup()` (UTF-8 reconfigure + SetConsoleOutputCP/SetConsoleCP 65001 + chcp در ویندوز)، تشخیص bidi ترمینال (`WT_SESSION`/`TERM_PROGRAM`/غیر-nt/ANSICON)، `fa()` با reshape خودکار (arabic-reshaper + python-bidi، نصب best-effort)، `say(fa, en)` دوزبانه با fallback، `log()` کنسول شکل‌داده ولی فایل لاگ خام
+- setup wizard کاملاً فارسی + سوال جدید `ai_model` (نام هوش مصنوعی کنترل‌کننده)
+- اکشن CLI جدید `relay`: `relay shell <words>` / `relay <action>` / `relay <action> --json {...}` — register → POST /commands (client_uid خودش، source = ai_model یا text-chatbot-relay) → برداشتن از صف خودش + اجرا (با چک وضعیت برای جلوگیری از تعارض با نمونه poll) → چاپ بلوک JSON نهایی؛ exit code 0/1/2
+- `register()` فیلد `ai_model` می‌فرستد؛ `load_config` پیش‌فرض `ai_model: ""`؛ config.example.json اضافه شد؛ py_compile + smoke-test (relay help، --version، --help) موفق
+
+**پلاگین (→ 1.2.0):**
+- دیتابیس: ستون `key_plain` (aclp_api_keys) و `ai_model` (aclp_clients)؛ `ACLP_Activator::maybe_upgrade()` روی admin_init + `add_missing_columns()` (SHOW COLUMNS + ALTER) برای نصب‌های موجود
+- `ACLP_API_Keys`: create متن کامل ذخیره می‌کند؛ `usage_stats()` (فرمان/نتیجه/فایل هر دو جهت/آخرین فعالیت/DISTINCT sources) + سطح‌بندی استفاده دوطرفه full/partial/one_way/none + `bidirectional_label()`
+- `ACLP_Clients::register` فیلد ai_model؛ REST: `/agent/register` پاس ai_model، `GET /clients` فیلدهای ip/agent_version/python_version/ai_model/capabilities، `GET /agent-prompt?api_key=` (اعتبارسنجی کلید، 401 برای نامعتبر)
+- `ACLP_Utils::agent_prompt($site_url, $api_key)`: بازطراحی کامل متن اصل ۴ — بخش «0) detect MODE»، MODE A (فراخوانی مستقیم API)، MODE B (relay برای چت‌بات فقط-متنی، قوانین سختگیرانه برای مدل‌های ضعیف)، بلوک کلید جایگزین‌شونده؛ رفع باگ تکرار پیشوند «- API key:»
+- پنل: جدول کلیدها با کلید کامل + دکمه کپی + لینک «📊 جزئیات و اتصال‌ها»؛ صفحه مخفی `aclp-key-view` (کلید کامل، آمار دوطرفه ۴ کارتی، هوش مصنوعی‌های در ارتباط، جدول سیستم‌ها با وضعیت اتصال/ai_model/قابلیت‌ها، آخرین تعاملات)؛ جدول سیستم‌ها + کلید و ai_model؛ داشبورد: منوی کشویی کلید (کلیدهای فعال) + قالب `<script type="text/template">` + بازسازی زنده JS (regex بلوک placeholder) + کپی؛ تنظیمات: دکمه «کپی PAT»؛ اعلان key_created اصلاح شد («همیشه قابل مشاهده»)
+- JS: `copyText` با fallback textarea + flash، `.aclp-copy-val` (کپی value input)، selector منطق
+- چکر PHP حالت‌مند: 15/15 OK؛ شبیه‌سازی پایتونی جایگزینی بلوک کلید/regex JS: OK
+
+**مستندات (اصل ۱، ۲، ۴):**
+- AGENT-API.md: نسخه 1.2.0، بخش 10 کامل (relay/MODE B) + 10.1 (ai_model و فیلدهای register)، /clients نمونه جدید، /agent-prompt با ?api_key=، نکته source برای نمایش هوش مصنوعی‌ها در پنل
+- README: badge و ZIPها → 1.2.0، بلوک اصل ۴ هماهنگ با agent_prompt (MODE A/B)، جدول قابلیت‌ها (+۳ ردیف)، گام ۲ (کلید همیشه قابل کپی) + بخش «چت‌بات فقط-متنی دارید؟»، عیب‌یابی فارسی کنسول، نقشه راه
+- USER-GUIDE: بخش ۳ بازنویسی (کلید همیشه قابل مشاهده + جزئیات هر کلید)، بخش ۴ (سوالات جدید wizard فارسی)، بخش ۵ (زیربخش چت‌بات فقط-متنی)، بخش ۶ (پنل جدید)، بخش ۱۴ (حالت‌ها و ?api_key=)
+- project.md: نسخه 1.2.0، اصل ۴ (MODE A/B + انتخابگر + ?api_key=)، جداول (key_plain/ai_model)، بخش 3.8 جدید (relay + کنسول فارسی)، وضعیت، ADR 12-15 + موقوف‌سازی ADR 7
+- CHANGELOG (1.2.0 کامل)، SECURITY (ذخیره متن کلید — ریسک پذیرفته‌شده)، brainstorm (گفتگو #3)، worklog همین بخش، agent/README.fa.md (کنسول فارسی + relay)، config.example.json (ai_model)
+
+**انتشار:**
+- git fetch: هیچ کامیت جدید ریموت غیر از کامیت‌های قبلی نبود (گزارش در پایان به کاربر)
+- build_release: دو ZIP v1.2.0 (پلاگین + ایجنت) با نسخه هماهنگ
+- کامیت + پوش + Release v1.2.0 با دو asset + کپی ZIPها به /home/z/my-project/download/
+
+### نکات مهم برای ایجنت‌های بعدی
+- متن اصل ۴ اکنون **چهار** جای هماهنگ دارد: `ACLP_Utils::agent_prompt()` + بلوک README + AGENT-API.md بخش 10 + همین توصیف در project.md — همه را با هم بروز کن.
+- دو ستون دیتابیس جدید با `maybe_upgrade` (admin_init) مهاجرت می‌شوند؛ نصب تازه از CREATE TABLE می‌گیرد. برای ستون‌های آینده همین الگو.
+- متن فارسی جدید در ایجنت: همیشه از `say()`/`fa()` استفاده کن، هرگز `print` مستقیم فارسی. فایل لاگ خام می‌ماند.
+- regex JS بلوک کلید (`- API key:  PASTE_YOUR_REAL_API_KEY_HERE[\s\S]*?Never guess or invent credentials\.`) به متن heredoc وابسته است؛ اگر متن را عوض کردی، هر دو سمت (PHP + JS) را هماهنگ کن.

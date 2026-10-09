@@ -3,12 +3,16 @@
 > **Persian note (برای کاربر):** این سند عمداً به انگلیسی نوشته شده است، چون مخاطب اصلی آن چت‌بات‌ها و ایجنت‌های هوش مصنوعی هستند که مستندات انگلیسی را قابل‌اعتمادتر پارس می‌کنند. راهنمای فارسی کاربر: `docs/USER-GUIDE.fa.md`. این فایل را در system prompt یا ابزار knowledge چت‌بات خود قرار دهید تا بداند چگونه با سیستم کاربر تعامل کند.
 
 Base URL: `https://YOUR-SITE.com/wp-json/aclp/v1`
-Plugin version: 1.1.0 · API namespace: `aclp/v1`
+Plugin version: 1.2.0 · API namespace: `aclp/v1`
 
-> **v1.1.0 highlights:** automatic HTTP fallback when HTTPS fails · new public `GET /agent-prompt`
-> (feed its `prompt` field to any LLM to onboard it instantly) · new `GET /github-integration`
-> (repo + PAT for developer-agents, see `docs/AGENT-CONTRIBUTION.md`) · new agent actions
-> `privilege_status` / `privilege_run` and `shell` payload flag `"elevated": true`.
+> **v1.2.0 highlights:** text-only chatbots can now drive the PC through the agent's **relay mode**
+> (`python aclp_agent.py relay <action> ...` — see section 10) · `GET /agent-prompt` accepts
+> `?api_key=` to embed a real key · `GET /clients` now returns agent specs (version, python, IP,
+> capabilities, controlling AI model) · agents can self-report their controlling AI via the
+> `ai_model` register field.
+> **v1.1.0:** automatic HTTP fallback when HTTPS fails · public `GET /agent-prompt` ·
+> `GET /github-integration` (repo + PAT for developer-agents) · `privilege_status` / `privilege_run`
+> and `shell` payload flag `"elevated": true`.
 
 ## 0. Protocol fallback — HTTP when HTTPS is broken
 
@@ -57,10 +61,14 @@ Response:
 
 ### 3.2 `GET /agent-prompt` — public onboarding text for AI agents (no key needed)
 Returns `{"ok":true,"version":"...","usage":"...","docs_url":"...","repo_url":"...","prompt":"..."}`.
-The `prompt` field is a ready-made, professional instruction block (API key placeholder left
-empty on purpose so the agent asks the user). Feed it to **any** LLM — even weak/limited ones —
-so it can drive the PC through this bridge without reading this whole document. WordPress admin
-dashboard shows the same text with a copy button.
+The `prompt` field is a ready-made, professional instruction block covering **both modes**:
+MODE A (chatbots that can execute code — call the REST API directly) and MODE B (TEXT-ONLY
+chatbots — they print one `aclp_agent.py relay ...` command per step and the user pastes the
+JSON result back). The API key placeholder is left empty on purpose so the agent asks the user;
+pass `?api_key=aclp_live_...` to embed a real key into the returned text. Feed it to **any** LLM —
+even weak/limited ones — so it can drive the PC through this bridge without reading this whole
+document. The WordPress admin dashboard shows the same text with an API-key selector,
+auto-filled site URL and a copy button.
 
 ### 3.3 `GET /github-integration` — repo + PAT for developer-agents (key required)
 ```json
@@ -80,10 +88,16 @@ If `pat_set` is `false` (empty `pat`), **ask the user** to paste their GitHub PA
 ```json
 {"ok":true,"clients":[
   {"client_uid":"...","name":"my-laptop","os":"Windows 11","hostname":"LAPTOP",
-   "online":true,"last_seen_at":"...","commands_total":42,"registered_at":"..."}
+   "ip":"1.2.3.4","online":true,"last_seen_at":"...","commands_total":42,"registered_at":"...",
+   "agent_version":"1.2.0","python_version":"3.12.1","ai_model":"ChatGPT",
+   "capabilities":["file_delete","file_download","file_list","file_mkdir","file_move","file_read",
+     "file_write","http_request","install","kill_process","open_url","ping","privilege_run",
+     "privilege_status","process_list","run_python","screenshot","shell","sysinfo","upload_file"]}
 ]}
 ```
-Pick a `client_uid` from here when multiple machines are connected.
+Pick a `client_uid` from here when multiple machines are connected. `ai_model` is the name of the
+AI/chatbot the user configured as the controller of that machine (register field `ai_model`);
+it is empty if the user did not set it.
 
 ### 3.5 `POST /commands` — send a command to a machine
 Request body:
@@ -103,7 +117,9 @@ Request body:
 - `client_uid`: target machine. Rules: omitted + 1 client → that client; omitted + several clients but only 1 online → the online one; omitted + several online → HTTP 400 with a `clients` list so you can choose.
 - `broadcast: true`: queue for **all online clients** of this key (ignore `wait`).
 - `wait` + `timeout` (1–25s): block until result (recommended for short actions).
-- `source`: free-form label (your bot's name) shown in the history.
+- `source`: free-form label (your bot's name) shown in the history AND on the per-key
+  "AI models in contact" list in the WordPress admin — always send something meaningful here
+  (e.g. `"source": "ChatGPT"`), it is how the owner sees which AI used the key.
 
 Immediate response (no wait): `{"ok":true,"commands":[{"command_uid":"...","client_uid":"...","status":"pending"}]}`
 
@@ -266,3 +282,43 @@ Errors are returned as `{"code":"...","message":"<Persian human message>","data"
 - Every action is logged server-side (command, payload, result, files, duration) and visible to the owner in the WordPress admin — act accordingly.
 - **Elevation is opt-in:** if `privilege_run` / `elevated:true` fails with an elevation error, tell the user how to configure it (Linux: `elevation_user`/`elevation_password` in config.json; Windows: accept the UAC prompt) — or just continue without it, since normal actions never require admin rights.
 - **Developer-agents:** to update the project itself read `GET /github-integration` then `docs/AGENT-CONTRIBUTION.md` (check remote commits before pushing; report them to the user).
+
+## 10. TEXT-ONLY chatbots — the agent's relay mode (MODE B)
+
+If you **cannot execute code or HTTP requests** (pure text chatbot), you can STILL drive the PC:
+the user runs the agent on the connected PC and acts as your hands.
+
+For every single step:
+1. Print EXACTLY ONE terminal command in one fenced code block — one of:
+   ```
+   python aclp_agent.py relay shell <command words here>
+   python aclp_agent.py relay <action>
+   python aclp_agent.py relay <action> --json {"one":"line","json":"payload"}
+   ```
+   Examples:
+   ```
+   python aclp_agent.py relay shell dir
+   python aclp_agent.py relay sysinfo
+   python aclp_agent.py relay shell git status
+   python aclp_agent.py relay file_list --json {"path": "C:/Users"}
+   ```
+   For `shell` write the command words right after it (no quoting needed — the agent joins them).
+   For other actions with parameters use `--json` with ONE line of JSON. Actions without
+   parameters take only the action name.
+2. Tell the user: "Copy this into the terminal of the connected PC, run it, then paste the whole
+   JSON output back to me."
+3. The agent registers itself, queues the command through the normal API (full history on the
+   server), executes it, and prints one JSON block. Read the `result` field (or `error`) and
+   continue with the next single command. NEVER invent output — always wait for the user's paste.
+
+The relay output is the same object as `GET /commands/{uid}`: `status`, `result`, `error`,
+`duration_ms`, `files[]`. Relay respects the API key already configured in the agent's
+`config.json`; if the agent is not configured yet it runs its interactive setup first.
+
+### 10.1 Agent registration extras (for code-capable agents managing their own machine)
+The bundled agent sends these fields in `POST /agent/register`; if you implement your own agent,
+send them too:
+- `ai_model` — the name of the AI/chatbot controlling this machine (shown in the WordPress admin
+  per-key view: "هوش مصنوعی کنترل‌کننده"). Set it in the agent's config.json ("ai_model": "ChatGPT").
+- `agent_version`, `os`, `os_version`, `hostname`, `python_version`, `capabilities` — machine specs
+  visible to the owner in the admin panel.
