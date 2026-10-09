@@ -160,6 +160,8 @@ class ACLP_Admin {
                         'rate_limit_per_min'        => isset( $_POST['rate_limit_per_min'] ) ? $_POST['rate_limit_per_min'] : 240,
                         'max_pending_per_client'    => isset( $_POST['max_pending_per_client'] ) ? $_POST['max_pending_per_client'] : 50,
                         'delete_data_on_uninstall'  => isset( $_POST['delete_data_on_uninstall'] ) ? 1 : 0,
+                        'github_repo_url'           => isset( $_POST['github_repo_url'] ) ? wp_unslash( $_POST['github_repo_url'] ) : '',
+                        'github_pat'                => isset( $_POST['github_pat'] ) ? wp_unslash( $_POST['github_pat'] ) : '',
                 ) );
 
                 self::redirect( 'aclp-settings', 'settings_saved' );

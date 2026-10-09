@@ -60,7 +60,17 @@ class ACLP_Admin_Pages {
                 echo '<li>در بخش <a href="' . esc_url( admin_url( 'admin.php?page=aclp-keys' ) ) . '">کلیدهای API</a> یک کلید بسازید و آن را کپی کنید (فقط یک‌بار نمایش داده می‌شود).</li>';
                 echo '<li>برنامه ایجنت (Python) را روی سیستم خود (ویندوز/لینوکس) دانلود و اجرا کنید و همین آدرس و کلید را وارد کنید:<br><code>' . esc_html( $rest_url ) . '</code></li>';
                 echo '<li>چت‌بات هوش مصنوعی شما با استفاده از <a href="https://github.com/Tobeseuss/ai-chatbot-link-to-pc/blob/main/docs/AGENT-API.md" target="_blank">مستندات API</a> می‌تواند فرمان‌ها را به سیستم شما ارسال کند.</li>';
-                echo '</ol></div>';
+                echo '</ol>';
+                echo '<p><strong>پشتیبانی HTTP:</strong> اگر HTTPS سایت شما مشکل اتصال داشت، همه عملکردهای پلاگین و ایجنت با <code>http://</code> هم کار می‌کنند (ایجنت به‌صورت خودکار از HTTPS به HTTP سوئیچ می‌کند).</p>';
+                echo '</div>';
+
+                // متن آماده معرفی پل به ایجنت هوش مصنوعی (اصل اساسی شماره ۴).
+                $prompt_id = 'aclp-agent-prompt-text';
+                echo '<div class="card aclp-guide aclp-agent-prompt"><h2>🤖 نحوه اعلام نحوه استفاده از پل به ایجنت هوش مصنوعی</h2>';
+                echo '<p class="description">متن زیر را کپی کنید و به هر هوش مصنوعی / LLM / ایجنتی که می‌خواهید کنترل سیستم را داشته باشد بدهید. جای خالی <code>API key</code> عمداً خالی است تا خود ایجنت از شما سوال کند. این متن با هر بروزرسانی پلاگین هماهنگ می‌شود و از مسیر <code>GET ' . esc_html( $rest_url ) . '/agent-prompt</code> هم قابل دریافت است.</p>';
+                echo '<p><button type="button" class="button button-primary aclp-copy-key" data-target="' . esc_attr( $prompt_id ) . '">کپی متن آماده</button></p>';
+                echo '<pre id="' . esc_attr( $prompt_id ) . '" class="aclp-json" style="max-height:340px;overflow:auto;direction:ltr;text-align:left">' . esc_html( ACLP_Utils::agent_prompt() ) . '</pre>';
+                echo '</div>';
 
                 // آخرین فرمان‌ها.
                 $q = ACLP_Commands::query( array( 'per_page' => 15 ) );
@@ -209,7 +219,7 @@ class ACLP_Admin_Pages {
                 }
                 echo '</select>';
                 echo '<select name="type"><option value="">همه انواع</option>';
-                foreach ( array( 'shell', 'file_read', 'file_write', 'file_list', 'file_delete', 'file_mkdir', 'file_move', 'file_download', 'upload_file', 'open_url', 'http_request', 'screenshot', 'sysinfo', 'process_list', 'kill_process', 'install', 'run_python', 'ping' ) as $tp ) {
+                foreach ( array( 'shell', 'file_read', 'file_write', 'file_list', 'file_delete', 'file_mkdir', 'file_move', 'file_download', 'upload_file', 'open_url', 'http_request', 'screenshot', 'sysinfo', 'process_list', 'kill_process', 'install', 'run_python', 'privilege_status', 'privilege_run', 'ping' ) as $tp ) {
                         echo '<option value="' . $tp . '" ' . selected( $filters['type'], $tp, false ) . '>' . esc_html( ACLP_Utils::type_label( $tp ) ) . '</option>';
                 }
                 echo '</select>';
@@ -351,6 +361,14 @@ class ACLP_Admin_Pages {
                 self::number_field( 'max_log_entries', 'حداکثر ردیف‌های لاگ', $s['max_log_entries'], 'قدیمی‌ترین ردیف‌ها حذف می‌شوند' );
                 self::number_field( 'max_commands_rows', 'حداکثر ردیف‌های فرمان', $s['max_commands_rows'], '' );
                 self::number_field( 'max_file_size_mb', 'حداکثر حجم هر فایل آپلودی (مگابایت)', $s['max_file_size_mb'], 'به محدودیت post_max_size سرور هم توجه کنید' );
+                echo '</tbody></table>';
+
+                echo '<h2 class="title">یکپارچگی گیت‌هاب (برای ایجنت‌های توسعه‌دهنده)</h2>';
+                echo '<p class="description">ایجنت‌های هوش مصنوعیِ متصل به پل می‌توانند با این اطلاعات، تغییرات خود را در ریپوی پروژه کامیت کنند و نسخه جدید منتشر کنند (اصل اساسی ۳). PAT باید دسترسی کامل خواندن/نوشتن به تمام بخش‌ها داشته باشد (به‌جز مواردی که گیت‌هاب فقط خواندن می‌دهد).</p>';
+                echo '<table class="form-table"><tbody>';
+                echo '<tr><th><label for="github_repo_url">آدرس ریپوی رسمی</label></th><td><input type="text" id="github_repo_url" name="github_repo_url" value="' . esc_attr( $s['github_repo_url'] ) . '" class="regular-text code" dir="ltr"></td></tr>';
+                echo '<tr><th><label for="github_pat">توکن PAT گیت‌هاب</label></th><td><input type="text" id="github_pat" name="github_pat" value="' . esc_attr( $s['github_pat'] ) . '" class="regular-text code" dir="ltr" autocomplete="off" placeholder="github_pat_...">';
+                echo ' <span class="description">ایجنت‌ها این توکن را از مسیر <code>GET ' . esc_html( rest_url( 'aclp/v1' ) ) . '/github-integration</code> دریافت می‌کنند. اگر خالی باشد، از شما می‌پرسند.</span></td></tr>';
                 echo '</tbody></table>';
 
                 echo '<h2 class="title">خطرناک</h2>';
