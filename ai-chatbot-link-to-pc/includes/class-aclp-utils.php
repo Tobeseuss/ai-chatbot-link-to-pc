@@ -139,6 +139,11 @@ class ACLP_Utils {
          * صفحه بازشده (text/plain) دیده و پردازش می‌شود.
          * قاعده مالک: در هر تغییر آینده این حالت باید توسعه و تکمیل شود.
          *
+         * از v2.1.0 (درخواست مالک) در MODE C دستورات متنی پیچیده باید Base64 شوند و
+         * در پارامتر cmd64 قرار گیرند — متن خام پیچیده آدرس URL را خراب می‌کند؛
+         * سرور سه شکل Base64 (URL-safe، استاندارد خام، استاندارد percent-encoded)
+         * را خودکار دیکد می‌کند و payload64 هم برای JSON پیچیده اضافه شد.
+         *
          * @param string $site_url آدرس سایت (خالی = سایت فعلی) — همیشه خودکار جای‌گذاری می‌شود.
          * @param string $api_key  کلید API (خالی = جای‌نگهدار تا ایجنت از کاربر بپرسد).
          * @return string
@@ -262,9 +267,19 @@ shows the job report.
 
 1) Submit a job and (normally) get the result in the same page view:
        {SITE_URL}/wp-json/aclp/v1/url/run?key=<the API key>&cmd=<command>&wait=15
-   - "cmd" = one shell command, URL-encoded (spaces become %20). Example:
+   - "cmd" = ONE SIMPLE shell command, URL-encoded (spaces become %20). Example:
        .../url/run?key=aclp_live_xxx&cmd=echo%20hello&wait=15
-   - Non-shell job: drop "cmd" and pass "type" instead, e.g.
+   - COMPLEX command text (quotes, &, |, >, <, $, newlines, non-ASCII) MUST be
+     Base64-encoded first and passed as "cmd64" — raw complex text placed in a
+     URL breaks the address. Recipe:
+       a) Base64-encode the UTF-8 command text;
+       b) make it URL-safe: replace + with -, / with _, drop the = padding
+          (the server also accepts standard Base64, but the URL-safe form is
+          the safest to paste into an address);
+       c) append &cmd64=<that string>.
+     Example: cmd64=ZWNobyAiaGVsbG8iICYmIGxz   (decodes to: echo "hello" && ls)
+     The alias &b64= is accepted as well.
+   - Non-shell job: drop "cmd"/"cmd64" and pass "type" instead, e.g.
        .../url/run?key=aclp_live_xxx&type=sysinfo&wait=15
    - "wait" = seconds the page keeps collecting the result (0-25, default 15).
 2) Read the plain-text report on the page: STATUS, RESULT, FILES. If STATUS is
@@ -273,10 +288,14 @@ shows the job report.
    until STATUS is "completed" or "failed". NEVER invent output — read the page.
 3) If the page says select_node, several nodes share this key: re-open the same
    URL adding &client=<client_uid> of one node from the list.
-4) URL limits: keep "cmd" under ~1200 characters and URL-encode it fully
-   (& becomes %26, spaces %20, quotes %22). For advanced jobs use
-   &payload= with ONE line of URL-encoded JSON, e.g. for file_list:
-   &type=file_list&payload=%7B%22path%22%3A%22C%3A%2F%22%7D
+4) Limits and advanced jobs: keep the command under ~4000 characters and the
+   whole URL under ~6000 (longer: split it or stage content with file_write +
+   run_python). For advanced jobs pass ONE line of JSON either as
+   &payload=<url-encoded JSON> or — better for complex JSON — as
+   &payload64=<Base64 of the JSON>, e.g. for file_list:
+       &type=file_list&payload64=eyJwYXRoIjoiQzovIn0=
+   The server decodes cmd64/b64/payload64 automatically and returns a clear
+   error page if a value is not valid Base64 — fix the encoding and re-open.
 5) Files produced by the job appear in the FILES section as signed download
    links that open in any browser — no headers needed. Add &format=json to
    receive standard JSON instead of the plain-text page.
@@ -320,7 +339,7 @@ PROMPT;
                 $prompt = str_replace(
                         array( '{VERSION}', '{SITE_URL}', '{KEY_LINE}', '{API_KEY_PH}', '{REPO_URL}' ),
                         array(
-                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '2.0.0',
+                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '2.1.0',
                                 untrailingslashit( (string) $site_url ),
                                 $key_line,
                                 $api_key_ph,

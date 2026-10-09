@@ -69,7 +69,7 @@ import urllib.request
 import uuid
 import webbrowser
 
-__VERSION__ = "2.0.0"
+__VERSION__ = "2.1.0"
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aclp_agent.log")

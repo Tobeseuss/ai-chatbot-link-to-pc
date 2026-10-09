@@ -2,7 +2,7 @@
 
 > پل ارتباطی بین چت‌بات‌های هوش مصنوعی و سیستم‌عامل کاربر (ویندوز / لینوکس) — افزونه وردپرس + ایجنت پایتون
 
-[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases)
+[![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases)
 [![License](https://img.shields.io/badge/license-GPL--2.0-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey.svg)]()
 
@@ -15,9 +15,11 @@
 > **از v1.4.0 متن با لحن کاملاً خنثی و حرفه‌ای «راهنمای ادغام API» نوشته می‌شود** (درخواست مالک): مدل به‌جای توصیف «کنترل سیستم واقعی»، سرویس را یک سرویس پردازش کار (job) می‌بیند — ساختار JSON را در URL ثبت می‌کند و نتیجه را از URL نتیجه پس از چند ثانیه برمی‌دارد. این لحن باعث می‌شود مدل‌های آموزش‌دیده‌ی ایمن درخواست را رد نکنند و حرفه‌ای‌تر تعامل کنند.
 >
 > **از v2.0.0 حالت سوم تعامل به‌عنوان اصل اساسی ۵ تثبیت شد (درخواست مالک):** بسیاری از هوش مصنوعی‌ها اعلام می‌کنند «امکان تعامل با API ندارند» ولی می‌توانند یک آدرس وب را باز و مرور کنند — پس برای آن‌ها **دروازه URL** ساخته شد: دستور در انتهای آدرس قرار می‌گیرد (`.../url/run?key=...&cmd=...`)، آدرس باز می‌شود و نتیجه در همان صفحه (متن ساده) دیده و پردازش می‌شود. متن زیر این حالت را در بخش **MODE C** توضیح می‌دهد؛ جزئیات کامل در `docs/AGENT-API.md` بخش 3.10. **قاعده مالک: در هر تغییر آینده، این حالت باید توسعه و تکمیل شود.**
+>
+> **از v2.1.0 (توسعه اصل ۵ — درخواست مالک):** دستورات متنی پیچیده (کوتیشن، `&`، `|`، `>`، خط جدید، نویسه‌های غیر ASCII) نباید خام در URL قرار بگیرند — آدرس را خراب می‌کنند. ایجنت‌ها چنین دستوراتی را **Base64 کدشده** در `cmd64` (مستعار `b64`) می‌فرستند و سرور خودکار دیکد می‌کند؛ JSON پیچیده هم از طریق `payload64` ارسال می‌شود.
 
 ```text
-# ACLP BRIDGE — API CLIENT INTEGRATION GUIDE (v2.0.0)
+# ACLP BRIDGE — API CLIENT INTEGRATION GUIDE (v2.1.0)
 
 The ACLP Bridge is a REST job-processing service. You interact with it exactly
 like any other API: you build a JSON request, submit it to one endpoint, and the
@@ -127,9 +129,19 @@ shows the job report.
 
 1) Submit a job and (normally) get the result in the same page view:
        https://YOUR-SITE.com/wp-json/aclp/v1/url/run?key=<the API key>&cmd=<command>&wait=15
-   - "cmd" = one shell command, URL-encoded (spaces become %20). Example:
+   - "cmd" = ONE SIMPLE shell command, URL-encoded (spaces become %20). Example:
        .../url/run?key=aclp_live_xxx&cmd=echo%20hello&wait=15
-   - Non-shell job: drop "cmd" and pass "type" instead, e.g.
+   - COMPLEX command text (quotes, &, |, >, <, $, newlines, non-ASCII) MUST be
+     Base64-encoded first and passed as "cmd64" — raw complex text placed in a
+     URL breaks the address. Recipe:
+       a) Base64-encode the UTF-8 command text;
+       b) make it URL-safe: replace + with -, / with _, drop the = padding
+          (the server also accepts standard Base64, but the URL-safe form is
+          the safest to paste into an address);
+       c) append &cmd64=<that string>.
+     Example: cmd64=ZWNobyAiaGVsbG8iICYmIGxz   (decodes to: echo "hello" && ls)
+     The alias &b64= is accepted as well.
+   - Non-shell job: drop "cmd"/"cmd64" and pass "type" instead, e.g.
        .../url/run?key=aclp_live_xxx&type=sysinfo&wait=15
    - "wait" = seconds the page keeps collecting the result (0-25, default 15).
 2) Read the plain-text report on the page: STATUS, RESULT, FILES. If STATUS is
@@ -138,10 +150,14 @@ shows the job report.
    until STATUS is "completed" or "failed". NEVER invent output — read the page.
 3) If the page says select_node, several nodes share this key: re-open the same
    URL adding &client=<client_uid> of one node from the list.
-4) URL limits: keep "cmd" under ~1200 characters and URL-encode it fully
-   (& becomes %26, spaces %20, quotes %22). For advanced jobs use
-   &payload= with ONE line of URL-encoded JSON, e.g. for file_list:
-   &type=file_list&payload=%7B%22path%22%3A%22C%3A%2F%22%7D
+4) Limits and advanced jobs: keep the command under ~4000 characters and the
+   whole URL under ~6000 (longer: split it or stage content with file_write +
+   run_python). For advanced jobs pass ONE line of JSON either as
+   &payload=<url-encoded JSON> or — better for complex JSON — as
+   &payload64=<Base64 of the JSON>, e.g. for file_list:
+       &type=file_list&payload64=eyJwYXRoIjoiQzovIn0=
+   The server decodes cmd64/b64/payload64 automatically and returns a clear
+   error page if a value is not valid Base64 — fix the encoding and re-open.
 5) Files produced by the job appear in the FILES section as signed download
    links that open in any browser — no headers needed. Add &format=json to
    receive standard JSON instead of the plain-text page.
@@ -239,7 +255,7 @@ operator approval); shell also accepts {"elevated": true} when configured.
 | 🐍 **ایجنت بدون هیچ وابستگی** | ایجنت فقط با پایتون خام (3.8+) اجرا می‌شود — هیچ pip install و هیچ دانلودی لازم نیست؛ همه‌چیز داخل پوشه ایجنت است |
 | 🪟 **کنسول تمام-انگلیسی و مقاوم** | همه پیام‌های ایجنت انگلیسی است (مشکل نمایش فارسی در cmd ویندوز یک‌بار برای همیشه حذف شد) و هر خطای مهلک همراه توقف پنجره + لاگ کامل در `aclp_agent.log` نمایش داده می‌شود — پنجره دیگر بی‌صدا بسته نمی‌شود |
 | 💬 **پشتیبانی از چت‌بات‌های فقط-متنی** | دستور `python aclp_agent.py relay <action>` — چت‌باتی که نمی‌تواند کد اجرا کند فقط یک دستور چاپ می‌کند؛ کاربر آن را در ترمینال اجرا و خروجی JSON را به چت‌بات برمی‌گرداند. تاریخچه کامل هم روی سرور ثبت می‌شود |
-| 🌐 **دروازه URL — اصل اساسی ۵ (از v2.0.0)** | برای هوش مصنوعی‌هایی که «امکان تعامل با API ندارند» ولی می‌توانند یک آدرس را باز کنند: `GET /url/run?key=...&cmd=...` — دستور در انتهای URL، نتیجه در همان صفحه (متن ساده؛ با `&format=json` هم JSON)؛ `GET /url/result` هم نتیجه را با ticket پس از چند ثانیه نشان می‌دهد |
+| 🌐 **دروازه URL — اصل اساسی ۵ (از v2.0.0؛ Base64 از v2.1.0)** | برای هوش مصنوعی‌هایی که «امکان تعامل با API ندارند» ولی می‌توانند یک آدرس را باز کنند: `GET /url/run?key=...&cmd=...` — دستور در انتهای URL، نتیجه در همان صفحه (متن ساده؛ با `&format=json` هم JSON)؛ `GET /url/result` هم نتیجه را با ticket پس از چند ثانیه نشان می‌دهد؛ **دستورات پیچیده با `cmd64` به‌صورت Base64 ارسال می‌شوند تا URL خراب نشود** |
 | 🌍 **کنسول تمام-انگلیسی (از v1.3.0)** | پیام‌های ایجنت فقط انگلیسی است تا مشکل نمایش متن‌های فارسی/RTL در cmd قدیمی ویندوز برای همیشه حذف شود؛ خروجی دستورات به همان شکل (UTF-8) منتقل می‌شود |
 | 🤖 **توسعه‌پذیری توسط خود ایجنت‌ها** | ایجنت‌های متصل می‌توانند با PAT قابل‌تنظیم در پنل، تغییرات را کامیت و نسخه جدید منتشر کنند (`docs/AGENT-CONTRIBUTION.md`) |
 | 🔄 **آپدیت آسان** | نسخه‌بندی معنایی (semver) + فایل‌های ZIP آماده در بخش Releases به‌همراه ایجنت به‌روزشده |
@@ -250,14 +266,14 @@ operator approval); shell also accepts {"elevated": true} when configured.
 
 ### گام ۱ — نصب افزونه در وردپرس
 
-1. از بخش [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) فایل `ai-chatbot-link-to-pc-v2.0.0.zip` را دانلود کنید.
+1. از بخش [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) فایل `ai-chatbot-link-to-pc-v2.1.0.zip` را دانلود کنید.
 2. در وردپرس: **افزونه‌ها ← افزودن ← بارگذاری افزونه** و فایل ZIP را نصب و فعال کنید.
 3. منوی جدید **«AI-PC Link»** در پیشخوان ظاهر می‌شود.
 
 ### گام ۲ — ساخت کلید API و نصب ایجنت
 
 1. **AI-PC Link ← کلیدهای API ← ساخت کلید جدید** — کلید ساخته می‌شود و از همان‌جا و در هر زمان آینده قابل مشاهده و کپی است (دکمه «کپی» کنار کلید).
-2. فایل `aclp-agent-v2.0.0.zip` را از Releases دانلود و روی سیستم خود (ویندوز/لینوکس) استخراج کنید.
+2. فایل `aclp-agent-v2.1.0.zip` را از Releases دانلود و روی سیستم خود (ویندوز/لینوکس) استخراج کنید.
 3. اجرا کنید:
    - **ویندوز:** دوبار کلیک روی `start_agent.bat`
    - **لینوکس:** `chmod +x start_agent.sh && ./start_agent.sh`
@@ -304,7 +320,7 @@ python aclp_agent.py relay file_list --json {"path": "C:/Users"}
 
 هر اجرای relay در تاریخچه پلاگین هم ثبت می‌شود و نتیجه به‌صورت یک بلوک JSON چاپ می‌شود.
 
-### هوش مصنوعی فقط می‌تواند آدرس باز کند؟ (حالت C — اصل اساسی ۵، از v2.0.0)
+### هوش مصنوعی فقط می‌تواند آدرس باز کند؟ (حالت C — اصل اساسی ۵، از v2.0.0؛ Base64 از v2.1.0)
 بعضی مدل‌ها اعلام می‌کنند «امکان تعامل با API نداریم» ولی می‌توانند یک آدرس وب را باز و مرور کنند. برای این‌ها **دروازه URL** ساخته شده: کافی است آدرس زیر (با کلید و دستور خودتان) را به آن‌ها بدهید یا در اختیارشان بگذارید — دستور در انتهای آدرس است و نتیجه در همان صفحه به‌صورت متن ساده ظاهر می‌شود:
 
 ```text
@@ -313,7 +329,16 @@ https://example.com/wp-json/aclp/v1/url/run?key=aclp_live_xxxxxxxx&type=sysinfo&
 https://example.com/wp-json/aclp/v1/url/result?key=aclp_live_xxxxxxxx&ticket=JOB_UID
 ```
 
-متن آماده اصل ۴ (بخش MODE C) به هوش مصنوعی می‌آموزد چطور خودش این آدرس‌ها را بسازد؛ مستندات کامل در [`docs/AGENT-API.md`](docs/AGENT-API.md) بخش 3.10.
+**دستورات پیچیده (کوتیشن، `&`، `|`، `>`، خط جدید، فارسی/اموجی) را باید کدشده فرستاد** — قرار دادن خام آن‌ها در URL آدرس را خراب می‌کند. راه‌حل (از v2.1.0): دستور را Base64 کنید و در `cmd64` بگذارید؛ سرور خودکار دیکد می‌کند:
+
+```text
+https://example.com/wp-json/aclp/v1/url/run?key=aclp_live_xxxxxxxx&cmd64=ZWNobyAiaGVsbG8iICYmIGxz&wait=15
+(دستور بالا معادل echo "hello" && ls است — سه شکل Base64 پذیرفته می‌شود؛ توصیه‌شده: URL-safe یعنی + به - و / به _ و حذف =)
+```
+
+JSON پیچیده کارهای پیشرفته هم از طریق `payload64` (همان JSON یک‌خطی به‌صورت Base64) ارسال می‌شود. اگر مقدار Base64 نامعتبر باشد، صفحه یک خطای انگلیسی واضح نشان می‌دهد تا ایجنت کدگذاری را اصلاح کند.
+
+متن آماده اصل ۴ (بخش MODE C) به هوش مصنوعی می‌آموزد چطور خودش این آدرس‌ها را بسازد و چه زمانی Base64 لازم است؛ مستندات کامل در [`docs/AGENT-API.md`](docs/AGENT-API.md) بخش 3.10.
 
 ---
 
@@ -321,8 +346,8 @@ https://example.com/wp-json/aclp/v1/url/result?key=aclp_live_xxxxxxxx&ticket=JOB
 
 | فایل | کاربرد | محل |
 |------|--------|-----|
-| `ai-chatbot-link-to-pc-v2.0.0.zip` | افزونه وردپرس | [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) |
-| `aclp-agent-v2.0.0.zip` | ایجنت سیستم (پایتون — بدون هیچ وابستگی) | [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) |
+| `ai-chatbot-link-to-pc-v2.1.0.zip` | افزونه وردپرس | [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) |
+| `aclp-agent-v2.1.0.zip` | ایجنت سیستم (پایتون — بدون هیچ وابستگی) | [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) |
 
 پیش‌نیازها: وردپرس 5.8+ با PHP 7.4+ · پایتون 3.8+ روی سیستم کاربر
 
@@ -370,6 +395,7 @@ https://example.com/wp-json/aclp/v1/url/result?key=aclp_live_xxxxxxxx&ticket=JOB
 | سیستم در پنل آنلاین نمی‌شود | اگر HTTPS مشکل دارد، آدرس را با `http://` وارد کنید — ایجنت v1.1+ خودش هم هنگام خطای SSL به HTTP سوییچ می‌کند؛ اگر سرور Self-signed است، گواهی را به سیستم اعتماد کنید |
 | فرمان در صف می‌ماند | ایجنت در حال اجراست؟ کنسول ایجنت را ببینید؛ بخش «سیستم‌های متصل» باید آنلاین باشد |
 | آدرس `/url/run` خطای 404 می‌دهد | افزونه سایت هنوز نسخه **2.0.0+** نیست — ZIP جدید را نصب کنید (`/ping` باید `"url_gate": true` برگرداند) |
+| صفحه می‌گوید `cmd64 is not valid Base64` | دستور پیچیده را درست Base64 نکرده‌اید — متن دستور را Base64 کنید و شکل URL-safe بسازید (`+` به `-`، `/` به `_`، حذف `=`)؛ پایه‌ی دیکد استاندارد هم پذیرفته است؛ بعد آدرس را دوباره باز کنید |
 | خطای حجم فایل | مقدار `post_max_size` و `upload_max_filesize` PHP سرور را افزایش دهید |
 | آپلود بزرگ شکست می‌خورد | در تنظیمات پلاگین سقف حجم را کم کنید یا محدودیت PHP را بالا ببرید |
 | دستورات مدیر اجرا نمی‌شوند | اکشن `privilege_status` را بزنید؛ در لینوکس `elevation_password` را در config.json بگذارید، در ویندوز روی پیام UAC «Yes» بزنید یا ایجنت را با Run as administrator اجرا کنید |
@@ -388,9 +414,10 @@ https://example.com/wp-json/aclp/v1/url/result?key=aclp_live_xxxxxxxx&ticket=JOB
 - [x] **v1.3.1** — رفع باگ 404 ثبت‌نام ایجنت: وقتی کاربر به‌جای ریشه سایت، آدرس کامل REST (`…/wp-json/aclp/v1`) را وارد می‌کرد مسیر دوبله می‌شد (تست زنده دوم مالک)؛ ایجنت حالا هر ورودی را نرمال می‌کند و `config.json` خرابِ ذخیره‌شده را در هر استارت خودترمیم می‌کند — بدون اجرای دوباره setup + متن اصل ۴ و راهنماها صریحاً «فقط ریشه سایت» را می‌گویند
 - [x] **v1.4.0** — بازطراحی حرفه‌ای متن اصل ۴ با لحن خنثی «راهنمای ادغام API» (درخواست مالک): حذف عبارات هشداردهنده مثل «کنترل کامل کامپیوتر واقعی» که باعث رد شدن درخواست توسط مدل‌های ایمن‌آموزش‌دیده می‌شد؛ چارچوب جدید: سرویس پردازش کار (job) → ثبت JSON در URL → بررسی نتیجه از URL نتیجه پس از چند ثانیه + خنثی‌سازی AGENT-API.md (نام ابزار نمونه از `pc_control` به `aclp_submit_job`)
 - [x] **v2.0.0 (Major به درخواست مالک) — دروازه URL / اصل اساسی ۵:** حالت سوم تعامل برای هوش‌هایی که فقط می‌توانند آدرس باز کنند: `GET /url/run` (دستور در انتهای URL، انتظار تا ۲۵ ثانیه، گزارش متن ساده در همان صفحه) + `GET /url/result` (نتیجه با ticket) + صفحه راهنمای خودکار + فهرست گره‌ها در حالت چندسیستمه + فایل‌های خروجی با لینک امضاشده + `&format=json`؛ متن اصل ۴ بخش MODE C گرفت؛ `/ping` فیلد `url_gate` برگرداند؛ قاعده مالک: در هر تغییر آینده این حالت توسعه و تکمیل می‌شود
-- [ ] **v2.1** — WebSocket برای دریافت لحظه‌ای فرمان (بدون polling) + اعلان به چت‌بات با webhook + توسعه بیشتر دروازه URL (broadcast و صف چندفرمانی از طریق URL)
-- [ ] **v2.2** — رمزنگاری سرتاسری payload، پشتیبانی macOS، حالت تأیید دستوری اختیاری
-- [ ] **v2.3** — اجرای زمان‌بندی‌شده فرمان‌ها، گروه‌بندی سیستم‌ها، نقش‌های کاربری
+- [x] **v2.1.0 (توسعه اصل ۵ — درخواست مالک) — کدگذاری دستورات پیچیده در دروازه URL:** دستورات متنی پیچیده (کوتیشن، `&`، `|`، `>`، خط جدید، نویسه غیر ASCII) نباید خام در URL قرار بگیرند — پارامتر `cmd64` (مستعار `b64`) دستور را Base64 گرفته و سرور سه شکل (URL-safe توصیه‌شده، استاندارد خام، استاندارد percent-encoded) را خودکار دیکد می‌کند + `payload64` برای JSON پیچیده + اعتبارسنجی کامل با خطای انگلیسی واضح + `/ping` فیلد `url_gate_cmd64` + آموزش قاعده به ایجنت‌ها در متن اصل ۴ (MODE C)، صفحه راهنمای خودکار و AGENT-API.md 3.10
+- [ ] **v2.2** — WebSocket برای دریافت لحظه‌ای فرمان (بدون polling) + اعلان به چت‌بات با webhook + توسعه بیشتر دروازه URL (broadcast و صف چندفرمانی از طریق URL)
+- [ ] **v2.3** — رمزنگاری سرتاسری payload، پشتیبانی macOS، حالت تأیید دستوری اختیاری
+- [ ] **v2.4** — اجرای زمان‌بندی‌شده فرمان‌ها، گروه‌بندی سیستم‌ها، نقش‌های کاربری
 
 پیشنهادهای شما هم خوشآمدید — [Issue بسازید](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/issues).
 

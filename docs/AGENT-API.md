@@ -3,8 +3,14 @@
 > **Persian note (برای کاربر):** این سند عمداً به انگلیسی نوشته شده است، چون مخاطب اصلی آن چت‌بات‌ها و ایجنت‌های هوش مصنوعی هستند که مستندات انگلیسی را قابل‌اعتمادتر پارس می‌کنند. راهنمای فارسی کاربر: `docs/USER-GUIDE.fa.md`. این فایل را در system prompt یا ابزار knowledge چت‌بات خود قرار دهید تا بداند چگونه با سیستم کاربر تعامل کند.
 
 Base URL: `https://YOUR-SITE.com/wp-json/aclp/v1`
-Plugin version: 2.0.0 · API namespace: `aclp/v1`
+Plugin version: 2.1.0 · API namespace: `aclp/v1`
 
+> **v2.1.0 — URL GATE ENCODING (Principle 5 development):** textually complex commands
+> (quotes, `&`, `|`, `>`, `<`, `$`, newlines, non-ASCII) placed raw in the URL break the
+> address. Send them **Base64-encoded** in `cmd64` (alias `b64`) — the server decodes all
+> three Base64 flavours automatically (URL-safe recommended: `+`→`-`, `/`→`_`, padding
+> optional). `payload64` does the same for advanced JSON payloads. `/ping` returns
+> `"url_gate_cmd64": true` on v2.1.0+. See section 3.10.
 > **v2.0.0 — URL GATE (Principle 5):** a third interaction mode for agents that
 > "cannot use APIs" but CAN open and read a web page: put the command at the end
 > of a URL, open it, and the page shows the plain-text job report
@@ -82,12 +88,13 @@ Rate limit: default 240 requests/minute per key → HTTP 429 when exceeded.
 ### 3.1 `GET /ping` — connectivity + auth check
 Response:
 ```json
-{"ok":true,"version":"2.0.0","chat_supported":true,"url_gate":true,"server_time":"...","site":"...","site_url":"...",
+{"ok":true,"version":"2.1.0","chat_supported":true,"url_gate":true,"url_gate_cmd64":true,"server_time":"...","site":"...","site_url":"...",
  "http_fallback_url":"http://YOUR-SITE.com/wp-json/aclp/v1","allow_http_fallback":true,
  "docs_url":".../docs/AGENT-API.md"}
 ```
 `chat_supported` is `true` when the plugin is v1.3.0+ (user chat endpoints exist).
 `url_gate` is `true` when the plugin is v2.0.0+ (URL-only interaction exists, section 3.10).
+`url_gate_cmd64` is `true` when the plugin is v2.1.0+ (Base64-encoded commands `cmd64`/`b64`/`payload64` accepted, section 3.10).
 
 ### 3.2 `GET /agent-prompt` — public onboarding text for AI agents (no key needed)
 Returns `{"ok":true,"version":"...","usage":"...","docs_url":"...","repo_url":"...","prompt":"..."}`.
@@ -187,11 +194,19 @@ curl or wget **without any auth header**. Use it when you cannot set custom head
 you want to hand a file to the user/another AI as a plain link. Links stay valid while the
 file exists (retention policy governs deletion).
 
-### 3.10 `GET /url/run` + `GET /url/result` — URL GATE (v2.0.0, Principle 5)
+### 3.10 `GET /url/run` + `GET /url/result` — URL GATE (v2.0.0, Principle 5; Base64 since v2.1.0)
 
 For agents that say *"I cannot use APIs"* but **can open and browse a web page**: put the
 command at the end of the URL, open it, and **the opened page shows the plain-text job
 report** — no POST, no headers, no JSON parsing required. Auth = the `key` query parameter.
+
+**Encoding rule (v2.1.0 — important):** textually COMPLEX commands (quotes, `&`, `|`, `>`,
+`<`, `$`, newlines, non-ASCII) placed raw in the URL break the address. Send them
+**Base64-encoded** in `cmd64` (alias `b64`). The server decodes automatically and accepts
+all three Base64 flavours: URL-safe (`+`→`-`, `/`→`_`, padding optional — recommended),
+plain standard, and percent-encoded standard. A clear English error page is returned if a
+value is not valid Base64 — fix the encoding and re-open. Simple one-liners may still use
+plain `cmd` (URL-encoded).
 
 **Submit + fetch in one page view (primary form):**
 
@@ -202,7 +217,7 @@ GET https://YOUR-SITE.com/wp-json/aclp/v1/url/run?key=aclp_live_xxx&cmd=echo%20h
 The page (Content-Type `text/plain`) looks like:
 
 ```
-ACLP URL GATE — job report (ACLP Bridge v2.0.0)
+ACLP URL GATE — job report (ACLP Bridge v2.1.0)
 --------------------------------------------------------------
 JOB:      9c1f6b2e-1d4a-4c3e-9a2f-5f8e7d6c5b4a (shell)
 STATUS:   completed
@@ -230,9 +245,11 @@ GET https://YOUR-SITE.com/wp-json/aclp/v1/url/result?key=aclp_live_xxx&ticket=<J
 | param | meaning |
 |-------|---------|
 | `key` (or `api_key`) | **required** — the API key (`aclp_live_...`) |
-| `cmd` | command text, URL-encoded (spaces = `%20`, `&` = `%26`, quotes = `%22`); maps to the type's main parameter (shell→`command`, run_python→`code`, open_url/http_request→`url`); default type is `shell` |
-| `type` | non-shell job without `cmd`, e.g. `type=sysinfo`, `type=screenshot`, `type=process_list` |
+| `cmd` | SIMPLE command text, URL-encoded (spaces = `%20`, `&` = `%26`, quotes = `%22`); maps to the type's main parameter (shell→`command`, run_python→`code`, open_url/http_request→`url`); default type is `shell` |
+| `cmd64` (alias `b64`) | the command **Base64-encoded** — use this for complex text (quotes, `&`, `|`, `>`, `<`, `$`, newlines, non-ASCII); URL-safe alphabet accepted (`+`→`-`, `/`→`_`, padding optional); decoded server-side; example: `cmd64=ZWNobyAiaGVsbG8iICYmIGxz` = `echo "hello" && ls` |
+| `type` | non-shell job without `cmd`/`cmd64`, e.g. `type=sysinfo`, `type=screenshot`, `type=process_list` |
 | `payload` | ONE line of URL-encoded JSON for advanced jobs, e.g. `&type=file_list&payload=%7B%22path%22%3A%22C%3A%2F%22%7D` |
+| `payload64` | the same ONE-line JSON **Base64-encoded** — recommended for complex JSON; example: `payload64=eyJwYXRoIjoiQzovIn0=` = `{"path":"C:/"}` |
 | `client` (or `client_uid`) | target node — required only when several nodes share the key (without it, the page returns a `select_node` list to re-open with) |
 | `wait` | 0-25 seconds the page keeps collecting the result (default 15) |
 | `format` | `text` (default) \| `json` — `json` returns the same object as `GET /commands/{uid}` |
@@ -242,16 +259,22 @@ GET https://YOUR-SITE.com/wp-json/aclp/v1/url/result?key=aclp_live_xxx&ticket=<J
 `wait` 0-25 (default 10 — the page waits for completion), `format` (`text`|`json`).
 
 **Gotchas & etiquette:**
-- Opening `/url/run` without `cmd`/`type`/`payload` prints a self-describing usage page.
-- Keep `cmd` under ~1200 characters and fully URL-encoded. Long or complex jobs belong in
-  MODE A (`POST /commands`).
+- Opening `/url/run` without `cmd`/`cmd64`/`type`/`payload`/`payload64` prints a self-describing
+  usage page (it documents the Base64 rule too).
+- **Always Base64-encode complex commands into `cmd64`** — raw complex text breaks the URL.
+  Keep the command under ~4000 characters and the whole URL under ~6000; longer jobs belong
+  in MODE A (`POST /commands`), or stage content with `file_write` + `run_python`.
+- Passing both `cmd` and `cmd64` (or both `payload` and `payload64`) returns a clear error —
+  pass the command exactly once.
 - Files produced by the job appear in the `FILES` section as signed `download_url` links —
   open or download them in any browser, no headers needed (works great for `screenshot`).
 - Errors render as a plain-text page with `STATUS: error (<http>)`, `CODE` and `REASON`
-  (e.g. `aclp_missing_key`, `aclp_invalid_key`, `aclp_no_clients`, `aclp_select_client`).
+  (e.g. `aclp_missing_key`, `aclp_invalid_key`, `aclp_no_clients`, `aclp_select_client`,
+  `aclp_invalid` for bad Base64).
 - The same queue/history powers all three modes — the owner sees every URL-gate job in the
   WordPress admin like any other job.
-- Requires plugin **v2.0.0+** on the site (`/ping` → `"url_gate": true`).
+- Requires plugin **v2.0.0+** on the site (`/ping` → `"url_gate": true`); Base64 params need
+  **v2.1.0+** (`/ping` → `"url_gate_cmd64": true`).
 
 ## 4. Action types & payload schemas
 

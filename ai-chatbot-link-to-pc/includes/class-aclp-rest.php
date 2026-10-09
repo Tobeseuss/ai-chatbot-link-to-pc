@@ -23,6 +23,8 @@
  * دروازه URL (اصل اساسی ۵ — v2.0.0؛ تعامل فقط با «باز کردن آدرس»):
  *   GET  /url/run                (دستور در انتهای URL؛ نتیجه در همان صفحه — text/plain)
  *   GET  /url/result             (بررسی نتیجه با ticket پس از چند ثانیه)
+ *   — از v2.1.0 دستورات متنی پیچیده باید Base64 شود و در cmd64 قرار گیرد
+ *     (درخواست مالک: متن خام پیچیده باعث خرابی آدرس URL می‌شود).
  *
  * @package ACLP
  */
@@ -178,6 +180,8 @@ class ACLP_REST {
                         'chat_supported'        => version_compare( ACLP_VERSION, '1.3.0', '>=' ),
                         // دروازه URL (اصل اساسی ۵) — تعامل فقط با باز کردن آدرس (v2.0.0).
                         'url_gate'              => version_compare( ACLP_VERSION, '2.0.0', '>=' ),
+                        // پشتیبانی Base64 دستورات در دروازه URL (v2.1.0).
+                        'url_gate_cmd64'        => version_compare( ACLP_VERSION, '2.1.0', '>=' ),
                         'server_time'           => ACLP_Utils::now(),
                         'site'                  => get_bloginfo( 'name' ),
                         'site_url'              => $site,
@@ -955,7 +959,55 @@ class ACLP_REST {
         }
 
         /**
-         * متن راهنمای دروازه URL (وقتی هیچ cmd/type/payload داده نشده باشد).
+         * دیکد Base64 پارامترهای cmd64/payload64 (v2.1.0 — توسعه اصل اساسی ۵).
+         *
+         * دستورات متنی پیچیده (کوتیشن، &، |، >، خط جدید، نویسه‌های غیر ASCII) وقتی
+         * خام در URL قرار می‌گیرند آدرس را خراب می‌کنند (درخواست مالک)؛ ایجنت‌ها
+         * باید چنین دستوراتی را Base64 کنند. برای مقاومت حداکثری هر سه شکل پذیرفته
+         * می‌شود:
+         *   ۱) URL-safe (+ → - ، / → _ ، پدینگ اختیاری) — روش توصیه‌شده به ایجنت‌ها؛
+         *   ۲) Base64 استانداردِ خام (PHP علامت + را در پارسر query به فاصله تبدیل
+         *      می‌کند؛ اینجا فاصله‌ها دوباره + می‌شوند)؛
+         *   ۳) Base64 استانداردِ percent-encoded.
+         *
+         * @param string $raw مقدار خام پارامتر (بعد از پارس query وردپرس).
+         * @return array{0: string, 1: string|null} [متن دیکدشده, توضیح خطا یا null]
+         */
+        private static function url_gate_b64_decode( $raw ) {
+                // ۱) جبران تبدیل «+» به فاصله توسط پارسر query؛ ۲) حذف شکستگی‌های تصادفی؛
+                // ۳) پدینگ فعلی حذف و پایین دوباره محاسبه می‌شود؛ ۴) الفبای URL-safe.
+                $s = str_replace( ' ', '+', (string) $raw );
+                $s = preg_replace( '/[\r\n\t\f\v]/', '', $s );
+                $s = rtrim( $s, '=' );
+                $s = strtr( $s, array( '-' => '+', '_' => '/' ) );
+                if ( '' === $s ) {
+                        return array( '', 'empty value' );
+                }
+                $mod = strlen( $s ) % 4;
+                if ( 1 === $mod ) {
+                        return array( '', 'invalid Base64 length' );
+                }
+                if ( $mod ) {
+                        $s .= str_repeat( '=', 4 - $mod );
+                }
+                $decoded = base64_decode( $s, true );
+                if ( false === $decoded ) {
+                        return array( '', 'characters outside the Base64 alphabet' );
+                }
+                if ( '' === trim( $decoded ) ) {
+                        return array( '', 'decodes to an empty command' );
+                }
+                if ( strlen( $decoded ) > 50000 ) {
+                        return array( '', 'decoded command is too long (max 50000 characters)' );
+                }
+                if ( ! preg_match( '//u', $decoded ) ) {
+                        return array( '', 'decoded text is not valid UTF-8' );
+                }
+                return array( $decoded, null );
+        }
+
+        /**
+         * متن راهنمای دروازه URL (وقتی هیچ cmd/cmd64/type/payload/payload64 داده نشده باشد).
          *
          * @return string
          */
@@ -966,18 +1018,26 @@ class ACLP_REST {
                         str_repeat( '=', 62 ) . "\n\n" .
                         "Run a shell command and read the result from the opened page:\n" .
                         "  " . $site . "/wp-json/aclp/v1/url/run?key=YOUR_API_KEY&cmd=echo%20hello&wait=15\n\n" .
+                        "COMPLEX command (quotes, &, |, >, <, newlines, non-ASCII)? SEND IT BASE64-ENCODED —\n" .
+                        "raw complex text breaks the URL:\n" .
+                        "  " . $site . "/wp-json/aclp/v1/url/run?key=YOUR_API_KEY&cmd64=<Base64 of the command>&wait=15\n\n" .
                         "Non-shell job (no cmd — type only):\n" .
                         "  " . $site . "/wp-json/aclp/v1/url/run?key=YOUR_API_KEY&type=sysinfo&wait=15\n\n" .
+                        "Advanced JSON payload (Base64 recommended):\n" .
+                        "  ...url/run?key=YOUR_API_KEY&type=file_list&payload64=<Base64 of the ONE-line JSON>\n\n" .
                         "Fetch a previous result by ticket:\n" .
                         "  " . $site . "/wp-json/aclp/v1/url/result?key=YOUR_API_KEY&ticket=JOB_UID\n\n" .
                         "Parameters:\n" .
-                        "  key      (required) API key — aclp_live_...\n" .
-                        "  cmd      command text, URL-encoded (spaces = %20, & = %26, quotes = %22)\n" .
-                        "  type     job type (default shell) — e.g. sysinfo, screenshot, process_list\n" .
-                        "  payload  one line of URL-encoded JSON for advanced jobs\n" .
-                        "  client   client_uid — required only when several nodes share this key\n" .
-                        "  wait     0-25 seconds the page keeps collecting the result (default 15)\n" .
-                        "  format   text (default) | json\n\n" .
+                        "  key       (required) API key — aclp_live_...\n" .
+                        "  cmd       SIMPLE command text, URL-encoded (spaces = %20, & = %26, quotes = %22)\n" .
+                        "  cmd64     command as Base64 — USE THIS for complex text; URL-safe alphabet accepted\n" .
+                        "            (+ -> -, / -> _, padding optional); standard Base64 also accepted. Alias: b64\n" .
+                        "  type      job type (default shell) — e.g. sysinfo, screenshot, process_list\n" .
+                        "  payload   ONE line of URL-encoded JSON for advanced jobs\n" .
+                        "  payload64 the same JSON as Base64 — recommended for complex payloads\n" .
+                        "  client    client_uid — required only when several nodes share this key\n" .
+                        "  wait      0-25 seconds the page keeps collecting the result (default 15)\n" .
+                        "  format    text (default) | json\n\n" .
                         "Full API reference: " . $repo . "/blob/main/docs/AGENT-API.md\n";
         }
 
@@ -1042,8 +1102,9 @@ class ACLP_REST {
          * GET /url/run — ثبت فرمان از طریق خودِ URL + انتظار تا ۲۵ ثانیه + نمایش نتیجه
          * در همان صفحه بازشده (اصل اساسی ۵).
          *
-         * پارامترها: key (یا api_key) | cmd | type | payload | client (یا client_uid) |
-         * wait (0-25، پیش‌فرض ۱۵) | format (text|json) | source (اختیاری).
+         * پارامترها: key (یا api_key) | cmd (ساده، URL-encoded) | cmd64/b64 (Base64 —
+         * برای دستورات پیچیده، v2.1.0) | type | payload | payload64 | client (یا
+         * client_uid) | wait (0-25، پیش‌فرض ۱۵) | format (text|json) | source (اختیاری).
          *
          * @param WP_REST_Request $request درخواست.
          * @return WP_REST_Response|WP_Error|null
@@ -1051,14 +1112,43 @@ class ACLP_REST {
         public static function route_url_run( $request ) {
                 $format = ( 'json' === strtolower( trim( (string) $request->get_param( 'format' ) ) ) ) ? 'json' : 'text';
 
-                $cmd         = trim( (string) $request->get_param( 'cmd' ) );
-                $type        = sanitize_key( (string) $request->get_param( 'type' ) );
-                $payload_raw = trim( (string) $request->get_param( 'payload' ) );
+                $cmd          = trim( (string) $request->get_param( 'cmd' ) );
+                $type         = sanitize_key( (string) $request->get_param( 'type' ) );
+                $payload_raw  = trim( (string) $request->get_param( 'payload' ) );
+
+                // v2.1.0 (توسعه اصل ۵ — درخواست مالک): دستورات پیچیده باید Base64 شوند
+                // تا آدرس URL خراب نشود. cmd64 (یا b64) و payload64 اینجا دیکد می‌شوند.
+                $cmd64_raw     = trim( (string) $request->get_param( 'cmd64' ) );
+                if ( '' === $cmd64_raw ) {
+                        $cmd64_raw = trim( (string) $request->get_param( 'b64' ) );
+                }
+                $payload64_raw = trim( (string) $request->get_param( 'payload64' ) );
+
+                if ( '' !== $cmd && '' !== $cmd64_raw ) {
+                        return self::url_gate_error( 'aclp_invalid', 'pass the command ONCE — either cmd=<url-encoded text> or cmd64=<Base64 of the command>, not both.', 400, $format );
+                }
+                if ( '' !== $payload_raw && '' !== $payload64_raw ) {
+                        return self::url_gate_error( 'aclp_invalid', 'pass the payload ONCE — either payload=<url-encoded JSON> or payload64=<Base64 of the JSON>, not both.', 400, $format );
+                }
+                if ( '' !== $cmd64_raw ) {
+                        list( $decoded, $err ) = self::url_gate_b64_decode( $cmd64_raw );
+                        if ( null !== $err ) {
+                                return self::url_gate_error( 'aclp_invalid', 'cmd64 is not valid Base64 (' . $err . ') — Base64-encode the UTF-8 command text, then use the URL-safe alphabet (+ -> -, / -> _, padding optional).', 400, $format );
+                        }
+                        $cmd = $decoded;
+                }
+                if ( '' !== $payload64_raw ) {
+                        list( $decoded, $err ) = self::url_gate_b64_decode( $payload64_raw );
+                        if ( null !== $err ) {
+                                return self::url_gate_error( 'aclp_invalid', 'payload64 is not valid Base64 (' . $err . ') — Base64-encode the ONE-line JSON, then use the URL-safe alphabet (+ -> -, / -> _, padding optional).', 400, $format );
+                        }
+                        $payload_raw = $decoded;
+                }
 
                 // راهنما: هیچ دستوری داده نشده — صفحه راهنما نمایش داده می‌شود (بدون نیاز به کلید).
                 if ( '' === $cmd && '' === $type && '' === $payload_raw ) {
                         if ( 'json' === $format ) {
-                                return new WP_Error( 'aclp_invalid', 'Provide cmd=<url-encoded command> or type=<job type>.', array( 'status' => 400 ) );
+                                return new WP_Error( 'aclp_invalid', 'Provide cmd=<url-encoded command>, cmd64=<Base64 command> (recommended for complex text), type=<job type> or payload64=<Base64 JSON>.', array( 'status' => 400 ) );
                         }
                         self::url_gate_text( self::url_gate_usage() );
                 }

@@ -214,3 +214,23 @@ Stage Summary:
 - Release v2.0.0: https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases/tag/v2.0.0
 - **گام الزامی مالک:** نصب ZIP پلاگین 2.0.0 روی سایت — دروازه URL و متن MODE C فقط بعد از آپدیت افزونه فعال می‌شود (`/ping` باید `url_gate: true` بدهد)
 - قاعده ماندگار جدید برای ایجنت‌های توسعه‌دهنده آینده: هر قابلیت جدید باید از دروازه URL هم قابل استفاده باشد (اصل ۵)
+
+---
+## Task ID: 8 — v2.1.0 (2026-10-09)
+**Task:** کدگذاری Base64 دستورات پیچیده در دروازه URL (خواسته مالک: «در روش سوم بعضی دستورات متنی پیچیده است و قرارگیری در URL موجب خطا می‌شود؛ به ایجنت‌ها گفته شود دستورات را کدشده بفرستند تا آدرس خراب نشود و API بتواند بررسی‌شان کند») — توسعه اصل اساسی ۵ طبق قاعده ماندگار + سینک سه‌گانه اصل ۴ + انتشار نسخه‌دار
+
+**Work Log:**
+- چک ریموت (اصل ۳): origin/main = db14a16 (Release v2.0.0) — 0 پشت / 0 جلو
+- پلاگین (class-aclp-rest.php): هلپر جدید `url_gate_b64_decode()` (جبران +→فاصله پارسر query، حذف شکستگی‌ها، بازسازی پدینگ، نگاشت URL-safe، دیکد سخت‌گیرانه، چهار اعتبارسنجی: خالی/طول>50000/الفبا/UTF-8)؛ پارامترهای `cmd64` (مستعار `b64`) و `payload64` در `route_url_run` با رد تداخل‌ها (cmd+cmd64 / payload+payload64) با خطای انگلیسی واضح؛ بروز کامل صفحه راهنمای خودکار (قاعده Base64 + توضیح raw complex text breaks the URL)؛ `/ping` فیلد `url_gate_cmd64: true`
+- متن اصل ۴ (agent_prompt — منبع واحد): بازنویسی MODE C — قاعده «COMPLEX command MUST be Base64-encoded → cmd64» + دستورالعمل سه‌مرحله‌ای URL-safe (+ → - ، / → _ ، حذف =) + مثال واقعی (ZWNobyAiaGVsbG8iICYmIGxz = echo "hello" && ls) + سقف طول (~4000 دستور / ~6000 کل URL) + payload64؛ بلوک README با sync_prompt_readme.py (VERSION→2.1.0) بازتولید شد — طول بلوک 11044
+- سینک سه‌گانه: AGENT-API.md (یادداشت v2.1.0 + بخش 3.10 با جدول پارامترهای جدید + نمونه‌های Base64 + gotchas + نمونه ping با url_gate_cmd64) + بلوک README + داشبورد پلاگین (از همان منبع)
+- نسخه‌ها → 2.1.0 در ۴ نقطه: هدر افزونه، ACLP_VERSION، readme.txt Stable tag، __VERSION__ ایجنت (بدون تغییر رفتار)
+- مستندات: CHANGELOG 2.1.0؛ README (بج، بند اصل ۵ v2.1.0، جدول قابلیت‌ها، بخش حالت C با مثال cmd64، ZIPها، سطر عیب‌یابی Base64 نامعتبر، نقشه راه: v2.1.0 انجام شد و WebSocket/webhook → v2.2)؛ readme.txt (Changelog 2.1.0)؛ USER-GUIDE بخش ۱۵ (قاعده کدگذاری + نمونه cmd64)؛ SECURITY.md (یادآوری: Base64 رمزنگاری نیست)؛ project.md (اصل ۵ توسعه v2.1.0 + 3.11 + وضعیت + ADR 24)؛ brainstorm #۸
+- تست‌ها: php -l (باینری استاتیک 8.2) روی class-aclp-rest.php و class-aclp-utils.php ✓؛ **تست واحد جدید scripts/test_url_gate_b64.php — ۲۰/۲۰ PASS** با Reflection روی تابع واقعی (URL-safe، استاندارد، جبران +→فاصله، پدینگ، فارسی UTF-8، چندخطی، شکستگی خطی، JSON، مثال‌های مستندات، و ۷ مورد خطا)؛ py_compile ایجنت ✓؛ placeholderهای متن اصل ۴ ✓
+- زنده: ping tpptc.ir → پلاگین سایت هنوز **1.4.0** است (url_gate فعال نیست) — تست زنده cmd64 پس از نصب 2.1.0 توسط مالک
+- build_release دو ZIP 2.1.0 → commit/push → Release v2.1.0 (دو asset) → کپی به download/
+
+**Stage Summary:**
+- Release v2.1.0: https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases/tag/v2.1.0
+- گام مالک: نصب ZIP افزونه 2.1.0 (سایت هنوز 1.4.0 است — دروازه URL و کدگذاری هر دو بعد از نصب فعال می‌شوند)؛ تست نمونه: `https://SITE/wp-json/aclp/v1/url/run?key=KEY&cmd64=ZWNobyAiaGVsbG8iICYmIGxz&wait=15`
+- قاعده اصل ۵ ادامه دارد: هر تغییر آینده دروازه URL را هم توسعه می‌دهد
