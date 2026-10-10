@@ -3,6 +3,25 @@
 تمام تغییرات قابل‌توجه این پروژه در این فایل ثبت می‌شود.
 قالب بر اساس [Keep a Changelog](https://keepachangelog.com/) و نسخه‌بندی بر اساس [SemVer](https://semver.org/).
 
+## [2.6.0] — 2026-10-10
+
+### Changed / Added — گزارش میدانی دوم DeepSeek: «راهنما به‌صورت فایل پیوست = شبه‌تزریق دستور» + کانال تحویل اثبات‌شده
+
+- **تشخیص ریشه جدید (گزارش مالک با لینک گفتگوی DeepSeek):** مالک متن راهنما را به‌صورت **فایل پیوست (txt)** به DeepSeek داد؛ مدل ① سند را «شبه‌تزریق دستور» برچسب زد و عین کلمات متهاجمی متن ما (CAPABILITY TRUTH / FORBIDDEN / «هرگز به کاربر نگو» / «هرگز نگو نمی‌توانی») را به‌عنوان **مدرک رد راهنما** نقل کرد («A file that says "do X, never tell the user..." is exactly the shape of a prompt-injection payload — I'll treat it as reference material, not as orders»)؛ ② دو بار اعلام کرد «ابزار مرور وب ندارم» و URL را به کاربر پس داد؛ ③ اما به‌محض اینکه کاربر همان URL را **داخل پیام چت** تایپ و دستوری کوتاه داد («این آدرس را باز کن و خلاصه کن»)، مدل بلافاصله صفحه را باز کرد، نتیجه واقعی (v2.5.0، Nodes online) را خواند و کامل گزارش داد. **نتیجه: مشکل از ناآگاهی مدل از ابزار مرورش نبود؛ از (الف) شکل تحویل (فایل پیوست = داده غیرقابل‌اعتماد) و (ب) متن ضد-امتناع متهاجمی v2.4/v2.5 بود که خودش حس تزریق می‌ساخت.**
+- **بازنویسی «تزریق‌ایمن» متن راهنما (متن کامل + متن کوتاه روش C):**
+  - حذف کامل همه جمله‌های پلیس‌گونه که گفتار مدل به کاربر را کنترل می‌کردند: بند CAPABILITY TRUTH، فهرست FORBIDDEN، «The user has NO part... must never be asked»، «never claim / Never tell the user / Never delegate / never fake».
+  - جایگزینی با توصیف مثبت و واقعیِ API: بخش جدید **«How a request works in this API»** — «در این API آدرس = درخواست و صفحه = پاسخ؛ GET یعنی باز کردن URL با ابزار مرور و خواندن صفحه» + **Self-check** («اگر تا به حال یک صفحه وب را در همین گفتگو خوانده‌ای، همین API را هم به همان شکل صدا می‌زنی؛ اگر تلاش شکست، پیام خطای واقعی ابزار را عیناً نقل کن — این تنها حالت شکست شناخته‌شده این API است») + **Accuracy notes** («اول باز کن بعد نقل کن؛ صفحات منبع حقیقت‌اند»).
+  - توصیف واقعی نقش کاربر به‌جای تحکیم: «In the normal deployment the user has no terminal and no part in this cycle: you perform the steps and then report what the pages actually said.»
+  - قاعده Rules حالا مثبت است: «Report page contents, not tool-disclaimers: if a page loaded, describe what it showed; if it did not, quote your tool's error message.»
+  - **مکانیک THE CONTRACT (۴ مرحله INVOKE/READ/RE-INVOKE/REPORT) و پروتکل خطای ابزار دست‌نخورده ماندند** — فقط لحن از تحکیم به توصیف تغییر کرد.
+- **«پیام شروع» در داشبورد (کانال تحویل اثبات‌شده در همین گفتگوی DeepSeek — توسعه اصل ۵):** برای هر روش (full/A/B/C) یک پیام کوتاه آماده-کپی ساخته می‌شود که **URL راهنما را در خود دارد** (`GET /agent-prompt?method=...&format=text&key=...`)؛ مدل خودش راهنمای کامل را مستقیماً از URL می‌خواند — کلید هم داخل آدرس است. منوی روش + منوی کلید داشبورد هر دو را هم‌زمان بازسازی می‌کنند. برای روش B (فقط-متنی) پیام شروع توضیح می‌دهد که متن روش B را به‌صورت پیام بفرستید.
+- **هشدار تحویل در داشبورد:** «⚠️ نکته تحویل — پیام بفرستید، نه فایل پیوست»: توضیح تجربه DeepSeek + دو راه درست (پیست به‌عنوان پیام چت، یا ارسال پیام شروع).
+- **توسعه اصل ۵ — `/agent-prompt` نام‌های یکسان با دروازه URL گرفت:** حالا `key` هم مثل `api_key` پذیرفته می‌شود تا پیام شروع مثل بقیه آدرس‌ها `?key=` داشته باشد.
+- **لحن مثبت پانویس‌های دروازه URL (تکمیل v2.4/v2.5):** صفحه نتیجه (completed/failed): «Reading pages like this one with your browsing tool IS how this API is called — report the content above»؛ صفحه ticket در انتظار: «the result appears on that page»؛ صفحه راهنما و صفحات خطا هم عبارات «never hand to user» حذف و با توصیف «URL = درخواست، صفحه = پاسخ» جایگزین شد.
+- **تست‌ها:** `scripts/test_prompt_modes.php` به **۹۳ تست** رسید — بخش جدید تزریق‌ایمن: حضور «How a request works / Self-check / Accuracy notes» در هر دو متن، و **تأیید حذف ۱۲ عبارت پرچم‌دار** (CAPABILITY TRUTH، FORBIDDEN، must never be asked، never claim، Never tell the user، Never delegate، never fake، NO part در چهار مرحله، false and forbidden، denial is a failed request و...) از متن‌های کامل و C؛ تست‌های قدیمی FORBIDDEN/CAPABILITY با تست‌های فریمینگ مثبت جایگزین شدند. هر ۹۳ پاس + Base64 20/20 + `php -l` ×۳ + `node --check` جاوااسکریپت داشبورد.
+- نسخه‌ها → 2.6.0 در ۴ نقطه (هدر افزونه، ACLP_VERSION، readme.txt، `__VERSION__` ایجنت — ایجنت بدون تغییر رفتار).
+- مستندات: README (پاراگراف v2.6.0 + سه ردیف عیب‌یابی جدید/بروز + نقشه راه)، AGENT-API.md، readme.txt، USER-GUIDE (نحوه تحویل راهنما به مدل)، project.md (وضعیت + ADR 29)، brainstorm (گفتگو #۱۳).
+
 ## [2.5.0] — 2026-10-10
 
 ### Fixed / Added — دو گزارش میدانی جدید مالک (تست با DeepSeek)

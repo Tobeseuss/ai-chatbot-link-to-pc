@@ -239,6 +239,11 @@ class ACLP_REST {
          */
         public static function route_agent_prompt( $request ) {
                 $api_key = (string) $request->get_param( 'api_key' );
+                if ( '' === $api_key ) {
+                        // v2.6.0 — نام‌های یکسان با دروازه URL: key/api_key هر دو پذیرفته
+                        // می‌شوند تا پیام شروع داشبورد بتواند مثل بقیه آدرس‌ها ?key= بگذارد.
+                        $api_key = (string) $request->get_param( 'key' );
+                }
                 if ( '' !== $api_key ) {
                         $check = ACLP_API_Keys::get_by_plain( $api_key );
                         if ( ! $check ) {
@@ -983,7 +988,7 @@ class ACLP_REST {
                         'REASON:  ' . $en . "\n" .
                         "\n" .
                         "AGENT: fix the URL yourself and open the corrected URL again with your\n" .
-                        "own web-browsing tool — never hand this URL to the user to open.\n"
+                        "web-browsing tool — in this API the page the URL returns IS the response.\n"
                 );
                 return null;
         }
@@ -1090,10 +1095,10 @@ class ACLP_REST {
                 $repo = untrailingslashit( (string) ACLP_Settings::get( 'github_repo_url', 'https://github.com/Tobeseuss/ai-chatbot-link-to-pc' ) );
                 return "ACLP URL GATE — usage (ACLP Bridge v" . ACLP_VERSION . ")\n" .
                         str_repeat( '=', 62 ) . "\n\n" .
-                        "AGENTS (AI models): building one of the URLs below is only HALF of a\n" .
-                        "request — you must OPEN it with your own web-browsing tool and READ the\n" .
-                        "returned page. A URL that is never opened is not a request, and handing\n" .
-                        "it to the user is a failed interaction. Never invent results.\n\n" .
+                        "AGENTS (AI models): in this API the URL is the request and the opened\n" .
+                        "page is the response — OPEN each URL below with your web-browsing tool\n" .
+                        "and READ the returned page; status, result and errors are printed there.\n" .
+                        "Quote what pages actually show.\n\n" .
                         "Run a shell command and read the result from the opened page:\n" .
                         "  " . $site . "/wp-json/aclp/v1/url/run?key=YOUR_API_KEY&cmd=echo%20hello&wait=15\n\n" .
                         "COMPLEX command (quotes, &, |, >, <, newlines, non-ASCII)? SEND IT BASE64-ENCODED —\n" .
@@ -1196,17 +1201,14 @@ class ACLP_REST {
                 $lines[] = '';
                 if ( in_array( $row->status, array( 'completed', 'failed' ), true ) ) {
                         $lines[] = 'AGENT (you, reading this page): the job is finished — now REPORT the';
-                        $lines[] = 'RESULT/ERROR above to the user in your own words. Do not end the turn';
-                        $lines[] = 'by handing over raw URLs instead of the actual result.';
-                        $lines[] = 'You opened this page with YOUR OWN browsing tool — that tool WORKS.';
-                        $lines[] = 'Never tell the user you "cannot browse / cannot open links": you just';
-                        $lines[] = 'did. No tool-disclaimers — report the content above.';
+                        $lines[] = 'RESULT/ERROR above to the user in your own words (not as raw URLs).';
+                        $lines[] = 'Reading pages like this one with your browsing tool IS how this API is';
+                        $lines[] = 'called — report the content above; if a page failed to load, quote the';
+                        $lines[] = 'tool error verbatim.';
                 } else {
                         $lines[] = 'AGENT (you, reading this page): the job is still ' . $row->status . ' — OPEN the';
-                        $lines[] = 'RESULT URL above AGAIN with YOUR web-browsing tool every 5-10 seconds';
-                        $lines[] = '(up to ~2 min) and read the new page. Never delegate this to the user.';
-                        $lines[] = 'Opening this page already proves your browsing tool works — never claim';
-                        $lines[] = 'you cannot open links.';
+                        $lines[] = 'RESULT URL above AGAIN with your web-browsing tool every 5-10 seconds';
+                        $lines[] = '(up to ~2 min) and read the new page — the result appears on that page.';
                 }
 
                 self::url_gate_text( implode( "\n", $lines ) . "\n" );

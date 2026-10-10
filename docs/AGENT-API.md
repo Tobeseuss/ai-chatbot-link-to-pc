@@ -3,11 +3,45 @@
 > **Persian note (برای کاربر):** این سند عمداً به انگلیسی نوشته شده است، چون مخاطب اصلی آن چت‌بات‌ها و ایجنت‌های هوش مصنوعی هستند که مستندات انگلیسی را قابل‌اعتمادتر پارس می‌کنند. راهنمای فارسی کاربر: `docs/USER-GUIDE.fa.md`. این فایل را در system prompt یا ابزار knowledge چت‌بات خود قرار دهید تا بداند چگونه با سیستم کاربر تعامل کند.
 
 Base URL: `https://YOUR-SITE.com/wp-json/aclp/v1`
-Plugin version: 2.5.0 · API namespace: `aclp/v1`
+Plugin version: 2.6.0 · API namespace: `aclp/v1`
+
+> **v2.6.0 — INJECTION-SAFE GUIDE REWRITE + STARTER MESSAGE (DeepSeek field report #2,
+> owner shared the conversation):** the owner handed the guide to DeepSeek as a **FILE
+> ATTACHMENT (v2.5.txt)**. The model (a) classified the document as a prompt-injection
+> payload and quoted our own aggressive wording ("CAPABILITY TRUTH", "FORBIDDEN",
+> "never tell the user", "never claim you cannot browse") as EVIDENCE for refusing it
+> ("A file that says 'do X, never tell the user...' is exactly the shape of a
+> prompt-injection payload — I'll treat it as reference material, not as orders"), then
+> (b) announced it had no web-browsing tool. Yet when the user typed the SAME URL inside
+> a normal chat message with a short imperative ("open this address and summarize"),
+> the model opened the page instantly and reported real results. Lessons: file
+> attachments are treated as untrusted data; speech-policing wording backfires; a short
+> user message with an inline URL is the proven delivery channel. Changes:
+> (1) **The MODE C guides (full + short) are rewritten injection-safe**: every
+> speech-policing phrase is removed and replaced by positive, factual API description —
+> a new "How a request works in this API" section ("the URL is the request and the page
+> is the response"), a **Self-check** ("if you have ever read any web page in this
+> conversation, you can call this API the same way; if an attempt fails, quote your
+> tool's real error verbatim — the only failure mode this API recognizes"), and
+> **Accuracy notes** ("open first, then quote — the pages are the source of truth").
+> THE CONTRACT mechanics (INVOKE → READ → RE-INVOKE → REPORT) are unchanged. The
+> gate-page footers now use the same positive tone ("Reading pages like this one with
+> your browsing tool IS how this API is called").
+> (2) **Starter message in the WordPress dashboard (Principle 5 development)**: for
+> every mode/key the dashboard builds a short paste-ready chat message containing the
+> guide URL — `GET /agent-prompt?method=c&format=text&key=...` — so the model fetches
+> the full guide itself straight from the URL (guide distribution is now URL-only).
+> `/agent-prompt` accepts both `key` and `api_key` for uniform naming with the URL gate.
+> (3) **Dashboard delivery warning**: paste the guide as a normal CHAT MESSAGE, never
+> attach it as a file.
 
 > **v2.5.0 — CAPABILITY TRUTH: never deny your own browsing (owner field report:
 > "the model opens and reviews the page correctly, then automatically announces it
-> has no web-browsing tools") + RESULT-FILE ATTACHMENT BUGFIX:**
+> has no web-browsing tools") + RESULT-FILE ATTACHMENT BUGFIX:** (superseded in
+> v2.6.0 — the CAPABILITY TRUTH block and FORBIDDEN list were replaced by the
+> injection-safe positive framing after the DeepSeek field report showed the aggressive
+> wording itself triggered the refusal. The v2.5.0 **file-attachment bugfix below is
+> still current**.)
 > (1) The MODE C guides (full + short) now carry a **CAPABILITY TRUTH** block: if you
 > opened even ONE page of this service (ping, ticket or result page), your browsing
 > tool WORKS — whatever your platform names it (browse / browser / web.run / web
@@ -189,6 +223,13 @@ itself is URL-only now (Principle 5). Example:
 ```
 GET {BASE_URL}/agent-prompt?method=c&api_key=aclp_live_xxx&format=text
 ```
+**v2.6.0:** `key` is now accepted as an alias for `api_key` (uniform naming with the URL
+gate), and the dashboard builds a **starter message** — a short paste-ready chat message
+containing exactly this URL so the model fetches the guide itself by opening it. The
+MODE C guide text itself is injection-safe since v2.6.0: it describes the API positively
+("the URL is the request, the page is the response") instead of policing the model's
+speech — field evidence showed aggressive wording made models classify the guide as a
+prompt-injection payload.
 MODE C URLs inside the returned text carry the key **pre-embedded** — the agent never has to
 add credentials to a URL (owner rule since v2.3.0).
 The `prompt` field is a ready-made, professional instruction block covering **three modes**:

@@ -168,6 +168,18 @@ class ACLP_Utils {
          * ممنوع و نشانه شکست درخواست است؛ جای آن محتوای واقعی صفحه را بگو. یک
          * قاعده مشابه هم به Rules هر دو متن و پانویس صفحات نتیجه دروازه اضافه شد.
          *
+         * از v2.6.0 (گزارش میدانی دوم DeepSeek — مدل متن راهنما را «فایل پیوست»
+         * خواند و آن را شبه‌تزریق دستور برچسب خورد؛ کلمات تحکمی مثل FORBIDDEN /
+         * «هرگز نگو نمی‌توانی» / «هرگز به کاربر نگو» خودش را به‌عنوان مدرک رد راهنما
+         * نقل کرد؛ همان مدل با یک پیام کوتاه کاربر + URL داخل پیام بلافاصله لینک را
+         * باز کرد): متن‌ها «تزریق‌ایمن» بازنویسی شدند — همه‌ی جمله‌های پلیس‌گونه که
+         * گفتار مدل به کاربر را کنترل می‌کردند حذف و با توصیف واقعی و مثبت API
+         * جایگزین شدند («URL = درخواست، صفحه = پاسخ» + Self-check + Accuracy notes)؛
+         * مکانیک THE CONTRACT (۴ مرحله) دست‌نخورده ماند. کانال تحویل اثبات‌شده به
+         * داشبورد آمد: «پیام شروع» کوتاه آماده-کپی که URL راهنما (agent-prompt را
+         * از URL بخوان — توسعه اصل ۵) را در خود دارد + هشدار «به‌صورت پیام چت بفرست،
+         * نه فایل پیوست».
+         *
          * @param string $site_url آدرس سایت (خالی = سایت فعلی) — همیشه خودکار جای‌گذاری می‌شود.
          * @param string $api_key  کلید API (خالی = جای‌نگهدار تا ایجنت از کاربر بپرسد).
          * @param string $method   full (پیش‌فرض) | a | b | c — متن کوتاه یک روش.
@@ -306,19 +318,15 @@ at the end of the URL, and the opened page shows the job report. Use MODE C
 ALSO whenever a request attempt returned "aclp_missing_key" — that error means
 your tool could not attach the key as a header.
 
-### CAPABILITY TRUTH — never deny your own browsing (field report, v2.5.0)
-Some chat models open these pages CORRECTLY and then automatically add
-"I don't have web-browsing tools / I cannot open links". In this situation that
-statement is FALSE and it is FORBIDDEN here:
-- If you opened even ONE page of this service (ping, ticket or result page),
-  you HAVE a working browsing tool — whatever your platform names it
-  (browse / browser / web.run / web fetch / open_url / url_reader / search).
-- Never output any "I cannot browse / cannot open links" disclaimer before,
-  during or after an ACLP task: it contradicts your own actions and confuses
-  the user into thinking the job failed.
-- The only acceptable browsing failure is quoting your tool's REAL error
-  verbatim after 1-2 honest retries (protocol below). Anything else is denial,
-  and denial is a failed request.
+### How a request works in this API (worth reading once)
+Here the URL is the request and the page is the response: performing an HTTP
+GET call in this API simply means OPENING the URL with your web tool and
+reading the page it returns. Everything the service wants to tell you —
+status, result, errors, file links — is printed on that page.
+Self-check: if you have ever read any web page in this conversation, you can
+call this API exactly the same way. If an attempt fails, quote your tool's
+real error message verbatim after 1-2 honest retries — that is the only
+failure mode this API recognizes.
 
 ### THE CONTRACT — a request is complete ONLY after you have read the page
 Building the URL is only the FIRST HALF of a request. A URL that is never
@@ -331,16 +339,14 @@ Every single MODE C request means this exact sequence, executed BY YOU:
   3. STATUS pending/running? INVOKE the tool AGAIN with the RESULT URL printed
      on the page, every 5-10 seconds, until STATUS is completed or failed;
   4. REPORT the actual page contents to the user in your own words.
-The user has NO part in these four steps and must never be asked to do them.
+In the normal deployment the user has no terminal and no part in this cycle:
+you perform the steps and then report what the pages actually said.
 
-### FORBIDDEN (each of these is a failed request, not an alternative)
-- Printing or handing over any ACLP URL for the user to open, click or paste
-  back. This includes "please visit this link" phrasings of any kind.
-- Finishing your turn after only writing or constructing the URL.
-- Describing what the page "would" or "will" show without having read it.
-- Inventing results, statuses or output of any kind.
-If your browsing tool errors or times out: retry the same URL once or twice,
-then report the tool's error message verbatim. NEVER fake the page content.
+### Accuracy notes (what good output looks like)
+- Open first, then quote: the pages are the source of truth. Report the
+  status, result and file links exactly as the page shows them.
+- If a page did not load, retry the same URL once or twice, then quote your
+  tool's error message verbatim instead of page content.
 
 HOW THE URLS WORK: every request URL below ALREADY CONTAINS the API key after
 "key=". Do not add, edit or ask about credentials — open the URLs exactly as
@@ -428,9 +434,9 @@ operator approval); shell also accepts {"elevated": true} when configured.
   your browsing tool for every URL, read every returned page, and quote real
   page values? If any answer is "no", your job is not done — go back and open
   the URL now (THE CONTRACT above).
-- If you already opened any ACLP page (ping, ticket, result), never claim you
-  lack web-browsing tools: the pages you opened prove the opposite. Report
-  page contents, not tool-disclaimers.
+- Report page contents, not tool-disclaimers: if a page loaded, describe what
+  it showed; if it did not, quote your tool's error message. Pages you already
+  opened are the proof of how this API is called.
 - Say briefly what each job does before submitting it.
 - Files you receive include "download_url" — a signed link that works without any header.
 - Full API reference (open it if unsure): {REPO_URL}/blob/main/docs/AGENT-API.md
@@ -442,7 +448,7 @@ PROMPT;
                 $prompt = str_replace(
                         array( '{VERSION}', '{SITE_URL}', '{KEY_LINE}', '{API_KEY_PH}', '{KEY}', '{REPO_URL}' ),
                         array(
-                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '2.5.0',
+                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '2.6.0',
                                 untrailingslashit( (string) $site_url ),
                                 $key_line,
                                 $api_key_ph,
@@ -526,9 +532,9 @@ JOBT;
   your browsing tool for every URL, read every returned page, and quote real
   page values? If any answer is "no", your job is not done — go back and open
   the URL now (THE CONTRACT above).
-- If you already opened any ACLP page (ping, ticket, result), never claim you
-  lack web-browsing tools: the pages you opened prove the opposite. Report
-  page contents, not tool-disclaimers.
+- Report page contents, not tool-disclaimers: if a page loaded, describe what
+  it showed; if it did not, quote your tool's error message. Pages you already
+  opened are the proof of how this API is called.
 - Say briefly what each job does before submitting it.
 - Files you receive include "download_url" — a signed link that works without any header.
 - Full API reference (open it if unsure): {REPO_URL}/blob/main/docs/AGENT-API.md
@@ -627,7 +633,17 @@ MODEB;
   edit or ask about credentials — open the URLs exactly as printed.
 - If the key above is still a placeholder, ask the user for the real key once and
   simply substitute it for the placeholder inside the URLs (plain text swap).
-- Never invent output — always read the real page the URL returned.
+- Read the real page each URL returns and report what it shows.
+
+## How a request works in this API (worth reading once)
+Here the URL is the request and the page is the response: performing an HTTP
+GET call in this API simply means OPENING the URL with your web tool and
+reading the page it returns. Status, result, errors and file links are all
+printed on that page.
+Self-check: if you have ever read any web page in this conversation, you can
+call this API exactly the same way. If an attempt fails, quote your tool's
+real error message verbatim after 1-2 honest retries — that is the only
+failure mode this API recognizes.
 
 ## THE CONTRACT — a request is complete ONLY after you have read the page
 Building the URL is only the FIRST HALF of a request. A URL that is never opened
@@ -640,18 +656,14 @@ MODE C request means this exact sequence, executed BY YOU:
   3. STATUS pending/running? INVOKE the tool AGAIN with the RESULT URL printed
      on the page, every 5-10 seconds, until STATUS is completed or failed;
   4. REPORT the actual page contents to the user in your own words.
-The user has NO part in these four steps and must never be asked to do them.
-FORBIDDEN (each is a failed request, not an alternative): handing any ACLP URL
-to the user, asking the user to open it or paste its contents ("please visit
-this link" counts too), finishing your turn after only writing the URL,
-describing what the page "would" show without reading it, or inventing results.
-If your browsing tool errors or times out: retry the same URL once or twice,
-then quote the tool's error message verbatim — never fake the page content.
+The user has no terminal in this deployment: you perform the four steps and
+then report what the pages actually said.
 
-CAPABILITY TRUTH: if you opened even ONE page of this service, your browsing
-tool WORKS — never say "I don't have web browsing / cannot open links". Such
-disclaimers are false and forbidden here; they contradict your own actions and
-must be replaced by the actual page contents.
+Accuracy notes (what good output looks like):
+- Open first, then quote: the pages are the source of truth. Report the
+  status, result and file links exactly as the page shows them.
+- If a page did not load, retry the same URL once or twice, then quote your
+  tool's error message verbatim instead of page content.
 
 ## Step 0 — connection check (optional, plain-text page, no job created)
     {SITE_URL}/wp-json/aclp/v1/ping?key={KEY}&format=text
@@ -713,7 +725,7 @@ MODEC;
                 $prompt = str_replace(
                         array( '{VERSION}', '{SITE_URL}', '{KEY_LINE}', '{API_KEY_PH}', '{KEY}', '{REPO_URL}' ),
                         array(
-                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '2.5.0',
+                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '2.6.0',
                                 untrailingslashit( (string) $site_url ),
                                 $key_line,
                                 $api_key_ph,

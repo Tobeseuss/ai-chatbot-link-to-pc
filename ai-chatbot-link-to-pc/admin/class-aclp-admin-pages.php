@@ -113,6 +113,41 @@ class ACLP_Admin_Pages {
                         echo '<script type="text/template" id="' . esc_attr( $template_id . '-' . $m_key ) . '">' . esc_html( ACLP_Utils::agent_prompt( '', '', $m_key ) ) . '</script>';
                 }
                 echo '<pre id="' . esc_attr( $prompt_id ) . '" class="aclp-json" style="max-height:340px;overflow:auto;direction:ltr;text-align:left">' . esc_html( ACLP_Utils::agent_prompt() ) . '</pre>';
+
+                // v2.6.0 — هشدار تحویل (گزارش میدانی دوم DeepSeek): اگر متن راهنما به‌صورت
+                // «فایل پیوست» داده شود، مدل آن را داده‌ی غیرقابل‌اعتماد/شبه‌تزریق می‌داند
+                // و از پیروی خودداری می‌کند؛ تحویل به‌صورت «پیام داخل چت» یا «پیام شروع».
+                echo '<div style="border:1px solid #d63638;border-radius:6px;padding:10px 14px;margin-top:14px;background:#fcf0f1">';
+                echo '<strong>⚠️ نکته تحویل — پیام بفرستید، نه فایل پیوست (تجربه میدانی DeepSeek):</strong> ';
+                echo 'اگر این متن به‌صورت «فایل پیوست» (مثل txt) به مدل داده شود، ممکن است آن را «داده‌ی غیرقابل‌اعتماد و شبه‌تزریق دستور» بداند و صریحاً از پیروی خودداری کند. ';
+                echo 'راه درست: متن را <strong>به‌صورت پیام متنی داخل چت</strong> پیست کنید — یا ساده‌تر، فقط «پیام شروع» زیر را بفرستید تا مدل راهنما را خودش مستقیماً با ابزار مرورش از آدرس باز کند و بخواند.';
+                echo '</div>';
+
+                // v2.6.0 — پیام شروع (کانال تحویل اثبات‌شده در آزمایش DeepSeek: یک پیام
+                // کوتاه کاربر + URL داخل پیام = مدل بلافاصله لینک را باز کرد). راهنما خودش
+                // از طریق URL توزیع می‌شود (توسعه اصل ۵): agent-prompt?method=...&format=text.
+                $starter_id   = 'aclp-starter-text';
+                $starter_tpl  = 'aclp-starter-template';
+                $starter_base = untrailingslashit( home_url() ) . '/wp-json/aclp/v1/agent-prompt';
+                $starters     = array(
+                        'full' => "You have a working web-browsing tool — use it now. Open this URL and read the page:\n"
+                                . $starter_base . "?method=full&format=text&key=PASTE_YOUR_REAL_API_KEY_HERE\n"
+                                . "That page is the integration guide for the ACLP Bridge (a service connected to my PC). Follow the guide's steps, run the jobs I ask for, and report the actual page contents to me.",
+                        'a'    => "You can make HTTP requests (POST/GET with headers). Open this URL and read the page:\n"
+                                . $starter_base . "?method=a&format=text&key=PASTE_YOUR_REAL_API_KEY_HERE\n"
+                                . "That page is the integration guide for the ACLP Bridge (a service connected to my PC). Follow the guide's steps (REST with Authorization header), run the jobs I ask for, and report the actual API responses to me.",
+                        'b'    => "Method B is for text-only models: there is no starter URL here. Copy the short MODE B text above and send it as a normal chat message; then run the terminal commands the model prints, one at a time, and paste the JSON outputs back to it.",
+                        'c'    => "Open this URL with your web-browsing tool and read the page:\n"
+                                . $starter_base . "?method=c&format=text&key=PASTE_YOUR_REAL_API_KEY_HERE\n"
+                                . "That page is the integration guide for the ACLP Bridge (a service connected to my PC; in this API opening a URL IS the request and the returned page IS the response). Follow the guide's steps, run the jobs I ask for, and report the actual page contents to me.",
+                );
+                foreach ( $starters as $m_key => $m_text ) {
+                        echo '<script type="text/template" id="' . esc_attr( $starter_tpl . '-' . $m_key ) . '">' . esc_html( $m_text ) . '</script>';
+                }
+                echo '<h3 style="margin-top:16px">🚀 پیام شروع (روش توصیه‌شده — همان الگویی که در آزمایش DeepSeek بلافاصله جواب داد)</h3>';
+                echo '<p class="description">روش و کلید را از انتخابگر بالا عوض کنید؛ این پیام هم به‌صورت خودکار ساخته می‌شود. کافی است همین پیام کوتاه را در چت بفرستید — مدل خودش راهنمای کامل را از آدرس داخل پیام می‌خواند (کلید هم داخل آدرس است).</p>';
+                echo '<pre id="' . esc_attr( $starter_id ) . '" class="aclp-json" style="max-height:180px;overflow:auto;direction:ltr;text-align:left">' . esc_html( $starters['full'] ) . '</pre>';
+                echo '<p><button type="button" class="button button-primary aclp-copy-key" data-target="' . esc_attr( $starter_id ) . '">کپی پیام شروع</button></p>';
                 echo '</div>';
 
                 // آخرین فرمان‌ها.

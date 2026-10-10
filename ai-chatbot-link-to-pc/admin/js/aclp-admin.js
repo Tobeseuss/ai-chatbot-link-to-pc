@@ -60,9 +60,11 @@
                 });
 
                 // داشبورد: انتخاب روش (کامل/A/B/C — v2.3.0) + انتخاب کلید API و بازسازی متن اصل ۴.
-                var pre  = document.getElementById('aclp-agent-prompt-text');
-                var sel  = document.getElementById('aclp-prompt-key-select');
-                var msel = document.getElementById('aclp-prompt-method-select');
+                // v2.6.0: «پیام شروع» هم با همان انتخابگرها بازسازی می‌شود.
+                var pre   = document.getElementById('aclp-agent-prompt-text');
+                var spre  = document.getElementById('aclp-starter-text');
+                var sel   = document.getElementById('aclp-prompt-key-select');
+                var msel  = document.getElementById('aclp-prompt-method-select');
                 if (pre && sel && msel) {
                         var PH = 'PASTE_YOUR_REAL_API_KEY_HERE';
                         var PH_BLOCK_RE = /- API key:\s+PASTE_YOUR_REAL_API_KEY_HERE[\s\S]*?Never guess or invent credentials\./;
@@ -80,6 +82,14 @@
                                         text = text.split(PH).join(key);
                                 }
                                 pre.textContent = text;
+                                if (spre) {
+                                        var stpl = document.getElementById('aclp-starter-template-' + msel.value);
+                                        if (stpl) {
+                                                var stext = stpl.textContent;
+                                                if (key) { stext = stext.split(PH).join(key); }
+                                                spre.textContent = stext;
+                                        }
+                                }
                         };
                         sel.addEventListener('change', render);
                         msel.addEventListener('change', render);
