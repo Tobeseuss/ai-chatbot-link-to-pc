@@ -144,15 +144,29 @@ class ACLP_Utils {
          * سرور سه شکل Base64 (URL-safe، استاندارد خام، استاندارد percent-encoded)
          * را خودکار دیکد می‌کند و payload64 هم برای JSON پیچیده اضافه شد.
          *
+         * از v2.3.0 (درخواست مالک): ① در همه URLهای MODE C کلید API از همان ابتدا
+         * داخل آدرس است ({KEY}) و از ایجنت خواسته نمی‌شود کلید را در URL بگذارد؛
+         * ② متن صریحاً می‌گوید باز کردن لینک‌ها کار خودِ ایجنت است (نه کاربر) تا
+         * مدل‌های مرورگر لینک را باز کنند و به کاربر ارجاع ندهند؛ ③ تابع
+         * agent_prompt_mode() سه متن کوتاه مجزا برای هر روش (A/B/C) می‌سازد تا
+         * کاربر در داشبورد هر متن را با هر کلید انتخاب و کپی کند؛ پارامتر سوم
+         * $method در همین تابع هم به همان متون هدایت می‌شود.
+         *
          * @param string $site_url آدرس سایت (خالی = سایت فعلی) — همیشه خودکار جای‌گذاری می‌شود.
          * @param string $api_key  کلید API (خالی = جای‌نگهدار تا ایجنت از کاربر بپرسد).
+         * @param string $method   full (پیش‌فرض) | a | b | c — متن کوتاه یک روش.
          * @return string
          */
-        public static function agent_prompt( $site_url = '', $api_key = '' ) {
+        public static function agent_prompt( $site_url = '', $api_key = '', $method = 'full' ) {
+                $method = strtolower( trim( (string) $method ) );
+                if ( in_array( $method, array( 'a', 'b', 'c' ), true ) ) {
+                        return self::agent_prompt_mode( $method, $site_url, $api_key );
+                }
                 if ( ! $site_url ) {
                         $site_url = home_url();
                 }
                 $api_key_ph = 'PASTE_YOUR_REAL_API_KEY_HERE';
+                $key_val    = $api_key ? $api_key : $api_key_ph;
                 $key_line   = $api_key
                         ? '- API key:  ' . $api_key . '   (already provided — send it as "Authorization: Bearer <key>")'
                         : "- API key:  {$api_key_ph}\n"
@@ -190,9 +204,10 @@ exactly this limitation — do NOT retry MODE A; go straight to MODE C below.
 - HTTPS is preferred. If HTTPS fails with a connection/SSL error, automatically retry the same
   request over HTTP (the server supports both).
 - URL-only connectivity check (MODE C): open
-      {SITE_URL}/wp-json/aclp/v1/ping?key=<the API key>&format=text
+      {SITE_URL}/wp-json/aclp/v1/ping?key={KEY}&format=text
   The page answers in plain English when the bridge is reachable and the key works
-  (it also lists how many nodes are currently online).
+  (it also lists how many nodes are currently online). The URL above already
+  contains the key — open it as-is.
 - NOTE about the PYTHON AGENT (for the human operator, not for you): when the agent's
   first-run setup asks for "WordPress site URL", the operator enters ONLY the site root
   {SITE_URL} — never this /wp-json/... REST path (agent v1.3.1+ repairs wrong entries).
@@ -274,15 +289,20 @@ open a web address and read its content — use the URL Gateway. The command sit
 at the end of the URL, and the opened page shows the job report. Use MODE C
 ALSO whenever a request attempt returned "aclp_missing_key" — that error means
 your tool could not attach the key as a header.
+HOW THE URLS WORK: every request URL below ALREADY CONTAINS the API key after
+"key=". Do not add, edit or ask about credentials — just open the URLs exactly
+as printed. Opening these URLs is YOUR part of the integration: use your own
+web-browsing tool yourself and read the returned page yourself. Do NOT ask the
+user to open links or to paste page contents — the user cannot do this step.
 
 0) Optional connectivity check first (plain-text page, no job created):
-       {SITE_URL}/wp-json/aclp/v1/ping?key=<the API key>&format=text
+       {SITE_URL}/wp-json/aclp/v1/ping?key={KEY}&format=text
 
 1) Submit the job. Chat browsing tools often have SHORT page timeouts (5-15s),
    so submit with wait=0 — the page answers INSTANTLY with the job ticket:
-       {SITE_URL}/wp-json/aclp/v1/url/run?key=<the API key>&cmd=<command>&wait=0
+       {SITE_URL}/wp-json/aclp/v1/url/run?key={KEY}&cmd=<command>&wait=0
    - "cmd" = ONE SIMPLE shell command, URL-encoded (spaces become %20). Example:
-       .../url/run?key=aclp_live_xxx&cmd=echo%20hello&wait=0
+       .../url/run?key={KEY}&cmd=echo%20hello&wait=0
    - If your tool tolerates longer page loads (~25s), you may use wait=20 and the
      finished result usually appears directly in the same page view.
    - COMPLEX command text (quotes, &, |, >, <, $, newlines, non-ASCII) MUST be
@@ -292,11 +312,12 @@ your tool could not attach the key as a header.
        b) make it URL-safe: replace + with -, / with _, drop the = padding
           (the server also accepts standard Base64, but the URL-safe form is
           the safest to paste into an address);
-       c) append &cmd64=<that string>.
-     Example: cmd64=ZWNobyAiaGVsbG8iICYmIGxz   (decodes to: echo "hello" && ls)
+       c) append &cmd64=<that string>, e.g.
+       .../url/run?key={KEY}&cmd64=ZWNobyAiaGVsbG8iICYmIGxz&wait=0
+       (decodes to: echo "hello" && ls)
      The alias &b64= is accepted as well.
    - Non-shell job: drop "cmd"/"cmd64" and pass "type" instead, e.g.
-       .../url/run?key=aclp_live_xxx&type=sysinfo&wait=0
+       .../url/run?key={KEY}&type=sysinfo&wait=0
    - "wait" = seconds the page keeps collecting the result (0-25, default 15).
 2) Open the RESULT URL printed on the submission page (it contains your ticket
    and &wait=20, so the page itself waits up to 20 seconds for the result).
@@ -359,12 +380,255 @@ operator approval); shell also accepts {"elevated": true} when configured.
 PROMPT;
 
                 $prompt = str_replace(
-                        array( '{VERSION}', '{SITE_URL}', '{KEY_LINE}', '{API_KEY_PH}', '{REPO_URL}' ),
+                        array( '{VERSION}', '{SITE_URL}', '{KEY_LINE}', '{API_KEY_PH}', '{KEY}', '{REPO_URL}' ),
                         array(
-                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '2.2.0',
+                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '2.3.0',
                                 untrailingslashit( (string) $site_url ),
                                 $key_line,
                                 $api_key_ph,
+                                $key_val,
+                                untrailingslashit( (string) ACLP_Settings::get( 'github_repo_url', 'https://github.com/Tobeseuss/ai-chatbot-link-to-pc' ) ),
+                        ),
+                        $prompt
+                );
+                return $prompt;
+        }
+
+        /**
+         * متن کوتاه و مجزای «یک روش» برای اصل ۴ (v2.3.0 — درخواست مالک):
+         * کاربر در داشبورد انتخاب می‌کند متن کدام روش (A/B/C) را با کدام کلید به
+         * کدام هوش مصنوعی بدهد؛ این تابع همان متن کوتاه را می‌سازد.
+         * تا حد امکان با متن کامل agent_prompt() هماهنگ نگه داشته شود.
+         *
+         * @param string $mode     a | b | c (همچنین mode_a و مانند آن پذیرفته می‌شود).
+         * @param string $site_url آدرس سایت (خالی = سایت فعلی).
+         * @param string $api_key  کلید API (خالی = جای‌نگهدار).
+         * @return string
+         */
+        public static function agent_prompt_mode( $mode, $site_url = '', $api_key = '' ) {
+                $mode = strtolower( trim( (string) $mode ) );
+                $mode = str_replace( array( 'mode_', 'mode ', 'method_' ), '', $mode );
+                $mode = substr( (string) $mode, 0, 1 );
+                if ( ! in_array( $mode, array( 'a', 'b', 'c' ), true ) ) {
+                        $mode = 'a';
+                }
+                if ( ! $site_url ) {
+                        $site_url = home_url();
+                }
+                $api_key_ph = 'PASTE_YOUR_REAL_API_KEY_HERE';
+                $key_val    = $api_key ? $api_key : $api_key_ph;
+                $key_line   = $api_key
+                        ? '- API key:  ' . $api_key . '   (already provided — use it exactly as it appears in the URLs/headers below)'
+                        : "- API key:  {$api_key_ph}\n"
+                          . "- If the API key above is a placeholder (empty/invalid), STOP and ask the user to copy a real key\n"
+                          . "  from WordPress admin -> AI-PC Link -> API Keys (the full key is visible there and can be copied).\n"
+                          . "  Never guess or invent credentials.";
+
+                $titles = array(
+                        'a' => 'MODE A — submitting jobs over HTTP (you can make HTTP requests)',
+                        'b' => 'MODE B — TEXT-ONLY clients (relay CLI run by the human operator)',
+                        'c' => 'MODE C — URL Gateway (you only open a URL and read the page)',
+                );
+
+                // دنباله مشترک: فهرست انواع کار + قواعد — با متن کامل هماهنگ نگه داشته شود.
+                $job_types = <<<JOBT
+=====================================================================
+## Job types (the "type" field) — all modes
+=====================================================================
+ping — service health check (returns version + capabilities)
+sysinfo — environment information summary
+shell {"command": "..."} — run a command-line task in the environment
+run_python {"code": "..."} — run a short Python routine in the environment
+file_read {"path": "..."} — read a file from the workspace
+file_write {"path": "...", "content_base64": "..."} — write a file into the workspace
+file_list {"path": "..."} — list directory contents
+file_delete {"path": "...", "recursive": false} — remove a workspace item
+file_mkdir {"path": "..."} — create a directory
+file_move {"src": "...", "dst": "...", "copy": false} — move or copy a workspace item
+upload_file {"path": "..."} — transfer a workspace file to you (environment -> you)
+file_download {"file_id": N, "save_path": "..."} — place your uploaded file into the workspace (you -> environment)
+open_url {"url": "..."} — open a URL with the environment's default handler
+http_request {"url": "...", "method": "GET"} — perform an HTTP request from the environment
+screenshot {} — capture a still image of the environment display (zero dependencies since agent v2.3.0)
+process_list {} — list running tasks
+kill_process {"pid": N} — terminate a task by PID
+install {"packages": ["name"], "manager": "auto"} — install packages into the environment
+privilege_status {} / privilege_run {"command": "..."} — elevated tasks (optional; may need
+operator approval); shell also accepts {"elevated": true} when configured.
+JOBT;
+
+                $rules = <<<RULES
+## Rules
+- Default to "wait": true; fall back to polling the result endpoint every 3-5 seconds
+  (MODE A), waiting for the paste (MODE B) or re-opening the result URL (MODE C).
+  Never guess results.
+- Say briefly what each job does before submitting it.
+- Files you receive include "download_url" — a signed link that works without any header.
+- Full API reference (open it if unsure): {REPO_URL}/blob/main/docs/AGENT-API.md
+- Project repository: {REPO_URL}
+- If a capability you need is missing, tell the operator; the service is extensible
+  (see docs/AGENT-CONTRIBUTION.md in the repository).
+RULES;
+
+                $head = <<<HEAD
+# ACLP BRIDGE — API CLIENT INTEGRATION GUIDE (v{VERSION} — {$titles[$mode]})
+
+The ACLP Bridge is a REST job-processing service. You submit a job (a JSON
+structure, a printed command or a URL) and the service returns the processed
+result — read actual values from the responses, never assume them.
+HEAD;
+
+                if ( 'a' === $mode ) {
+                        $body = <<<MODEA
+## Connection settings
+- Base URL:  {SITE_URL}/wp-json/aclp/v1
+{KEY_LINE}
+- Authentication header: prefer the STANDARD header (some hosts strip custom headers):
+      Authorization: Bearer {KEY}
+  The custom header "X-ACLP-Key: {KEY}" is also accepted. Content-Type: application/json.
+- HTTPS is preferred; if HTTPS fails with a connection/SSL error, retry over HTTP.
+
+### Request pattern (every job follows this exact pattern)
+    POST {SITE_URL}/wp-json/aclp/v1/commands
+    Authorization: Bearer {KEY}
+    Content-Type: application/json
+
+    Body: {"type": "<job_type>", "payload": {...}, "wait": true, "timeout": 25}
+
+1) Put the job type and its parameters into the JSON structure above and POST it.
+   With "wait": true the HTTP call blocks for up to 25 seconds and returns the
+   finished job result directly in the response (fastest path — the default).
+2) If the response shows status "pending" or "running" (long jobs), check the
+   result endpoint after a few seconds:
+       GET {SITE_URL}/wp-json/aclp/v1/commands/{command_uid}
+   Repeat every 3-5 seconds until status becomes "completed" or "failed", then
+   read the "result" field. The whole cycle: submit -> wait/poll -> process.
+3) Several environments can be registered under one key. GET /clients lists them
+   (pass "client_uid" in the body to target one; "broadcast": true targets all).
+4) To place a file into the environment:  POST /files (multipart field "file")
+   -> you get a file_id -> submit job
+   {"type": "file_download", "payload": {"file_id": <id>, "save_path": "C:/.../name.ext"}}.
+5) Files produced by a job appear in result.files[] with a "url" AND a "download_url";
+   "download_url" is a signed link that needs NO headers.
+
+### Messaging channel with the operator (optional)
+1) Fetch new messages:  GET /chat/pending?wait=25   (long-poll up to 25s; "wait": 0 returns immediately)
+2) Reply:  POST {SITE_URL}/wp-json/aclp/v1/chat/reply
+   Body: {"text": "your reply", "client_uid": "<uid from message.client or omit>",
+          "source": "<your model name e.g. GPT-4o>"}
+3) Poll /chat/pending again for the next message. Jobs stay on the /commands endpoints.
+MODEA;
+                } elseif ( 'b' === $mode ) {
+                        $body = <<<MODEB
+## Connection settings
+- Base URL:  {SITE_URL}/wp-json/aclp/v1
+{KEY_LINE}
+- The relay program handles authentication with the key above; the operator
+  enters it once during the relay's first-run setup (config.json).
+
+You interact through a small relay program (aclp_agent.py) that the operator runs
+in their terminal. For EVERY single step:
+
+1) You output EXACTLY ONE terminal command inside one fenced code block. Pick one of:
+       python aclp_agent.py relay shell <command words here>
+       python aclp_agent.py relay <job_type>
+       python aclp_agent.py relay <job_type> --json {"one":"line","json":"payload"}
+   Examples:
+       python aclp_agent.py relay shell dir
+       python aclp_agent.py relay sysinfo
+       python aclp_agent.py relay shell git status
+       python aclp_agent.py relay file_list --json {"path": "C:/Users"}
+   <job_type> is any type from the list below. For "shell" just write the command words
+   after it (no quotes needed). For other types with parameters use --json with ONE
+   line of JSON. For types without parameters write only the type name.
+2) Add one short sentence: "Run this in the terminal, then paste the JSON output back."
+3) When the JSON comes back, read the "result" field (or "error") and continue with
+   the next single command. NEVER output more than one command block at a time and
+   NEVER invent output — always wait for the paste.
+MODEB;
+                } else {
+                        $body = <<<MODEC
+## Connection settings
+- Service base:  {SITE_URL}/wp-json/aclp/v1
+{KEY_LINE}
+- Every request URL below already ends with key=<the API key> — no headers,
+  no login, no POST.
+- HTTPS is preferred; if HTTPS fails, the same URLs work over HTTP.
+
+## How you work with this service (important)
+- Every request URL below ALREADY CONTAINS the API key after "key=". Do not add,
+  edit or ask about credentials — open the URLs exactly as printed.
+- Opening the URLs is YOUR part of the integration: use your own web-browsing
+  tool yourself and read the returned page yourself. Do NOT ask the user to open
+  links for you or to paste page contents — the user cannot do this step.
+- If the key above is still a placeholder, ask the user for the real key once and
+  simply substitute it for the placeholder inside the URLs (plain text swap).
+- Never invent output — always read the real page the URL returned.
+
+## Step 0 — connection check (optional, plain-text page, no job created)
+    {SITE_URL}/wp-json/aclp/v1/ping?key={KEY}&format=text
+
+## Step 1 — submit the job (wait=0 = instant ticket page)
+Chat browsing tools often have SHORT page timeouts (5-15s), so submit with
+wait=0 — the page answers INSTANTLY with the job ticket:
+    {SITE_URL}/wp-json/aclp/v1/url/run?key={KEY}&cmd=<command>&wait=0
+- "cmd" = ONE SIMPLE shell command, URL-encoded (spaces become %20). Example:
+    .../url/run?key={KEY}&cmd=echo%20hello&wait=0
+- If your tool tolerates longer page loads (~25s), use wait=20 instead and the
+  finished result usually appears directly in the same page view.
+- COMPLEX command text (quotes, &, |, >, <, \$, newlines, non-ASCII) MUST be
+  Base64-encoded first and passed as "cmd64" — raw complex text placed in a
+  URL breaks the address. Recipe:
+    a) Base64-encode the UTF-8 command text;
+    b) make it URL-safe: replace + with -, / with _, drop the = padding
+       (the server also accepts standard Base64, but the URL-safe form is the
+       safest to paste into an address);
+    c) append &cmd64=<that string>, e.g.
+    .../url/run?key={KEY}&cmd64=ZWNobyAiaGVsbG8iICYmIGxz&wait=0
+    (decodes to: echo "hello" && ls)
+  The alias &b64= is accepted as well.
+- Non-shell job: drop "cmd"/"cmd64" and pass "type" instead, e.g.
+    .../url/run?key={KEY}&type=sysinfo&wait=0
+- "wait" = seconds the page keeps collecting the result (0-25, default 15).
+
+## Step 2 — read the result
+Open the RESULT URL printed on the submission page (it contains your ticket and
+&wait=20, so the page itself waits up to 20 seconds for the result). Typical
+cycle: the node picks the job up in 5-10 seconds. If STATUS is still "pending"
+or "running", RE-OPEN THE SAME RESULT URL every 5-10 seconds and keep retrying
+for up to 2 minutes before concluding anything — a busy node can occasionally
+take ~60 seconds. If a page load itself timed out, the job may still exist —
+re-open the result URL; if you lost the ticket, re-submit with wait=0.
+
+## Step 3 — nodes and offline status
+If the page says select_node, several nodes share this key: re-open the same URL
+adding &client=<client_uid> of one node from the list. The report also prints a
+NODE line — if it says OFFLINE, the ACLP agent on the PC is not running: tell
+the operator to start it.
+
+## Limits and advanced jobs
+Keep the command under ~4000 characters and the whole URL under ~6000 (longer:
+split it or stage content with file_write + run_python). For advanced jobs pass
+ONE line of JSON either as &payload=<url-encoded JSON> or — better for complex
+JSON — as &payload64=<Base64 of the JSON>, e.g. for file_list:
+    &type=file_list&payload64=eyJwYXRoIjoiQzovIn0=
+The server decodes cmd64/b64/payload64 automatically and returns a clear error
+page if a value is not valid Base64 — fix the encoding and re-open.
+Files produced by the job appear in the FILES section as signed download links
+that open in any browser — no headers needed. Add &format=json to receive
+standard JSON instead of the plain-text page.
+MODEC;
+                }
+
+                $prompt = $head . "\n\n" . $body . "\n\n" . $job_types . "\n\n" . $rules;
+                $prompt = str_replace(
+                        array( '{VERSION}', '{SITE_URL}', '{KEY_LINE}', '{API_KEY_PH}', '{KEY}', '{REPO_URL}' ),
+                        array(
+                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '2.3.0',
+                                untrailingslashit( (string) $site_url ),
+                                $key_line,
+                                $api_key_ph,
+                                $key_val,
                                 untrailingslashit( (string) ACLP_Settings::get( 'github_repo_url', 'https://github.com/Tobeseuss/ai-chatbot-link-to-pc' ) ),
                         ),
                         $prompt

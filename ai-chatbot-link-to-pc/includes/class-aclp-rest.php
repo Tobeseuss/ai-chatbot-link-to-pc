@@ -233,6 +233,9 @@ class ACLP_REST {
          * متن آماده معرفی پل به ایجنت هوش مصنوعی (اصل اساسی ۴).
          * عمومی است تا ضعیف‌ترین ایجنت‌ها هم بتوانند با یک GET آن را بگیرند.
          * پارامتر اختیاری api_key: کلید واقعی را داخل متن جای‌گذاری می‌کند.
+         * v2.3.0 (درخواست مالک): پارامتر method=a|b|c فقط متن کوتاه همان روش را
+         * برمی‌گرداند و format=text خروجی صفحه متنی ساده می‌دهد — خودِ توزیع راهنما
+         * هم از طریق «باز کردن URL» برای ایجنت‌های مرورگری امکان‌پذیر می‌شود (اصل ۵).
          */
         public static function route_agent_prompt( $request ) {
                 $api_key = (string) $request->get_param( 'api_key' );
@@ -242,13 +245,29 @@ class ACLP_REST {
                                 return new WP_Error( 'aclp_invalid_key', 'کلید API نامعتبر است.', array( 'status' => 401 ) );
                         }
                 }
+                $method  = strtolower( trim( (string) $request->get_param( 'method' ) ) );
+                $method  = str_replace( array( 'mode_', 'method_' ), '', $method );
+                $is_mode = in_array( substr( $method, 0, 1 ), array( 'a', 'b', 'c' ), true );
+                $prompt  = $is_mode
+                        ? ACLP_Utils::agent_prompt( '', $api_key, substr( $method, 0, 1 ) )
+                        : ACLP_Utils::agent_prompt( '', $api_key );
+
+                // خروجی صفحه متنی ساده (دوستدار ایجنت‌های مرورگری — فقط باز کردن URL).
+                $format = strtolower( trim( (string) $request->get_param( 'format' ) ) );
+                if ( 'text' === $format ) {
+                        header( 'Content-Type: text/plain; charset=utf-8' );
+                        echo $prompt;
+                        exit;
+                }
+
                 return rest_ensure_response( array(
                         'ok'        => true,
                         'version'   => ACLP_VERSION,
-                        'usage'     => 'Feed this text to any AI/LLM agent so it can use the PC bridge. Pass ?api_key=... to embed a real key, or leave it out so the agent asks the user.',
+                        'method'    => $is_mode ? substr( $method, 0, 1 ) : 'full',
+                        'usage'     => 'Feed this text to any AI/LLM agent so it can use the PC bridge. Pass ?api_key=... to embed a real key, or leave it out so the agent asks the user. v2.3.0: add &method=a|b|c for the short single-mode guide and &format=text for a plain-text page you can just open in a browser.',
                         'docs_url'  => untrailingslashit( (string) ACLP_Settings::get( 'github_repo_url' ) ) . '/blob/main/docs/AGENT-API.md',
                         'repo_url'  => untrailingslashit( (string) ACLP_Settings::get( 'github_repo_url' ) ),
-                        'prompt'    => ACLP_Utils::agent_prompt( '', $api_key ),
+                        'prompt'    => $prompt,
                 ) );
         }
 

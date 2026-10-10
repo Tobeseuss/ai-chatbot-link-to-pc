@@ -65,19 +65,33 @@ class ACLP_Admin_Pages {
                 echo '</div>';
 
                 // متن آماده معرفی پل به ایجنت هوش مصنوعی (اصل اساسی شماره ۴).
-                // آدرس سایت به‌صورت خودکار جای‌گذاری می‌شود؛ کاربر کلید موردنظر را از
-                // منوی کشویی انتخاب می‌کند و متن + دستورات بر اساس همان کلید ساخته و کپی می‌شوند.
+                // آدرس سایت به‌صورت خودکار جای‌گذاری می‌شود؛ کاربر کلید موردنظر و «روش»
+                // موردنظر (متن کامل یا فقط روش A/B/C) را انتخاب می‌کند و متن + دستورات
+                // بر اساس همان کلید ساخته و کپی می‌شوند. v2.3.0 — درخواست مالک.
                 $prompt_id    = 'aclp-agent-prompt-text';
                 $template_id  = 'aclp-agent-prompt-template';
                 $select_id    = 'aclp-prompt-key-select';
+                $method_id    = 'aclp-prompt-method-select';
                 $keys         = (array) ACLP_API_Keys::all();
                 $active_keys  = array_values( array_filter( $keys, function ( $k ) { return (int) $k->is_active; } ) );
+                $methods      = array(
+                        'full' => 'متن کامل (هر سه روش)',
+                        'a'    => 'روش A — چت‌بات با امکان اجرای کد (REST API)',
+                        'b'    => 'روش B — چت‌بات فقط-متنی (رله ترمینال)',
+                        'c'    => 'روش C — دروازه URL (فقط باز کردن لینک)',
+                );
 
                 echo '<div class="card aclp-guide aclp-agent-prompt"><h2>🤖 نحوه اعلام نحوه استفاده از پل به ایجنت هوش مصنوعی</h2>';
-                echo '<p class="description">آدرس سایت به‌صورت خودکار در متن جای‌گذاری شده است. کلید API موردنظر را از منوی زیر انتخاب کنید تا متن و دستورات آماده بر اساس همان کلید ساخته شوند؛ سپس متن را کپی کنید و به هر هوش مصنوعی / LLM / ایجنتی که می‌خواهید کنترل سیستم را داشته باشد بدهید. این متن شامل دو حالت است: حالت A برای چت‌بات‌هایی که می‌توانند کد اجرا کنند و حالت B (رله) برای چت‌بات‌های فقط-متنی. متن با هر بروزرسانی پلاگین هماهنگ می‌شود و از مسیر <code>GET ' . esc_html( $rest_url ) . '/agent-prompt</code> هم قابل دریافت است.</p>';
+                echo '<p class="description">آدرس سایت به‌صورت خودکار در متن جای‌گذاری شده است. طبق درخواست مالک (v2.3.0) می‌توانید «روش» و «کلید API» را جداگانه انتخاب کنید تا فقط متن کوتاه همان روش — با همان کلید — ساخته شود؛ سپس متن را کپی کنید و به هر هوش مصنوعی / LLM / ایجنتی که می‌خواهید به سیستم شما وصل شود بدهید. در روش C همه آدرس‌ها از همان ابتدا کلید را داخل خود دارند و از هوش مصنوعی خواسته نمی‌شود کلید را در URL بگذارد. متن با هر بروزرسانی پلاگین هماهنگ می‌شود و از مسیر <code>GET ' . esc_html( $rest_url ) . '/agent-prompt</code> با پارامترهای <code>method</code> و <code>format=text</code> هم قابل دریافت است.</p>';
 
-                // انتخابگر کلید API.
-                echo '<p style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><label for="' . esc_attr( $select_id ) . '"><strong>کلید API برای این متن:</strong></label> ';
+                // انتخابگر روش + کلید API.
+                echo '<p style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><label for="' . esc_attr( $method_id ) . '"><strong>روش اتصال:</strong></label> ';
+                echo '<select id="' . esc_attr( $method_id ) . '" style="min-width:220px;direction:rtl">';
+                foreach ( $methods as $m_key => $m_label ) {
+                        echo '<option value="' . esc_attr( $m_key ) . '">' . esc_html( $m_label ) . '</option>';
+                }
+                echo '</select>';
+                echo '<label for="' . esc_attr( $select_id ) . '" style="margin-inline-start:12px"><strong>کلید API برای این متن:</strong></label> ';
                 echo '<select id="' . esc_attr( $select_id ) . '" style="min-width:280px;direction:ltr">';
                 echo '<option value="">' . esc_html( 'PASTE_YOUR_REAL_API_KEY_HERE (ایجنت از شما می‌پرسد)' ) . '</option>';
                 foreach ( $active_keys as $k ) {
@@ -93,8 +107,11 @@ class ACLP_Admin_Pages {
                 echo '</select>';
                 echo '<button type="button" class="button button-primary aclp-copy-key" data-target="' . esc_attr( $prompt_id ) . '">کپی متن آماده</button></p>';
 
-                // قالب خام (با جای‌نگهدار کلید) — جاوااسکریپت کلید انتخابی را جای‌گذاری می‌کند.
-                echo '<script type="text/template" id="' . esc_attr( $template_id ) . '">' . esc_html( ACLP_Utils::agent_prompt() ) . '</script>';
+                // چهار قالب خام (کامل / A / B / C) با جای‌نگهدار کلید — جاوااسکریپت بر اساس
+                // روش انتخابی قالب را برمی‌دارد و کلید انتخابی را جای‌گذاری می‌کند.
+                foreach ( array_keys( $methods ) as $m_key ) {
+                        echo '<script type="text/template" id="' . esc_attr( $template_id . '-' . $m_key ) . '">' . esc_html( ACLP_Utils::agent_prompt( '', '', $m_key ) ) . '</script>';
+                }
                 echo '<pre id="' . esc_attr( $prompt_id ) . '" class="aclp-json" style="max-height:340px;overflow:auto;direction:ltr;text-align:left">' . esc_html( ACLP_Utils::agent_prompt() ) . '</pre>';
                 echo '</div>';
 

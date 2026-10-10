@@ -3,7 +3,20 @@
 > **Persian note (برای کاربر):** این سند عمداً به انگلیسی نوشته شده است، چون مخاطب اصلی آن چت‌بات‌ها و ایجنت‌های هوش مصنوعی هستند که مستندات انگلیسی را قابل‌اعتمادتر پارس می‌کنند. راهنمای فارسی کاربر: `docs/USER-GUIDE.fa.md`. این فایل را در system prompt یا ابزار knowledge چت‌بات خود قرار دهید تا بداند چگونه با سیستم کاربر تعامل کند.
 
 Base URL: `https://YOUR-SITE.com/wp-json/aclp/v1`
-Plugin version: 2.2.0 · API namespace: `aclp/v1`
+Plugin version: 2.3.0 · API namespace: `aclp/v1`
+
+> **v2.3.0 — PER-MODE GUIDES + KEY PRE-EMBEDDED IN MODE C URLS + ZERO-DEP SCREENSHOT
+> (owner requests):** (1) the onboarding text is now available as a short **single-mode
+> guide**: `GET /agent-prompt?method=a|b|c` (add `&api_key=...` to embed a real key and
+> `&format=text` for a plain-text page you can just open in a browser — guide distribution
+> itself now works URL-only, Principle 5); the dashboard gained a matching method selector.
+> (2) Every MODE C URL in the guide now **already contains the API key** (`key=...`) — the
+> agent is told NOT to add/edit/ask about credentials, and that opening the links is the
+> agent's own job (do not delegate opening to the user) — this removes the real-world
+> ChatGPT failure where it handed the URL back to the operator. (3) The agent `screenshot`
+> action needs **zero pip packages** now: Windows uses built-in PowerShell System.Drawing,
+> macOS `screencapture`, Linux scrot/gnome-screenshot/maim/spectacle/ImageMagick; pyautogui
+> is only an optional fallback (agent v2.3.0+).
 
 > **v2.2.0 — URL GATE FOR CHAT BROWSING AGENTS (Principle 5 development):** field-tested the
 > gate the way ChatGPT experiences it and removed the friction: (1) `/ping` now accepts the
@@ -124,7 +137,19 @@ JSON response:
 `url_gate_ping` is `true` when the plugin is v2.2.0+ (query-key auth + `format=text` page).
 
 ### 3.2 `GET /agent-prompt` — public onboarding text for AI agents (no key needed)
-Returns `{"ok":true,"version":"...","usage":"...","docs_url":"...","repo_url":"...","prompt":"..."}`.
+Returns `{"ok":true,"version":"...","method":"full","usage":"...","docs_url":"...","repo_url":"...","prompt":"..."}`.
+
+**v2.3.0 — single-mode guides:** add `?method=a|b|c` to get a short guide for ONLY that mode
+(aliases `mode_a`, `method_b` accepted). This is what you should hand an agent when you already
+know which mode it is — the text is much shorter and contains only that mode's steps plus the
+shared job-type list and rules. Add `&format=text` to receive the guide as a plain-text page
+(`Content-Type: text/plain`) that a browsing agent can simply open and read — guide distribution
+itself is URL-only now (Principle 5). Example:
+```
+GET {BASE_URL}/agent-prompt?method=c&api_key=aclp_live_xxx&format=text
+```
+MODE C URLs inside the returned text carry the key **pre-embedded** — the agent never has to
+add credentials to a URL (owner rule since v2.3.0).
 The `prompt` field is a ready-made, professional instruction block covering **three modes**:
 MODE A (chatbots that can execute code — call the REST API directly), MODE B (TEXT-ONLY
 chatbots — they print one `aclp_agent.py relay ...` command per step and the user pastes the
@@ -338,7 +363,7 @@ GET https://YOUR-SITE.com/wp-json/aclp/v1/url/result?key=aclp_live_xxx&ticket=<J
 | `file_download` | `{"file_id":9,"save_path":"C:\\Users\\me\\Downloads\\setup.zip"}` | `{"saved":"...","size":N}` — pairs with `POST /files` |
 | `open_url` | `{"url":"https://example.com"}` | opens the URL with the environment's default handler |
 | `http_request` | `{"url":"https://api.site/v1","method":"GET","headers":{},"body":null,"max_bytes":2000000}` | `{"status":200,"headers":{...},"body":"<text>","truncated":bool}` — lets you make web requests from the environment's network |
-| `screenshot` | `{}` | environment uploads PNG → result includes `files:[{file_id,url}]` (requires pyautogui in the environment) |
+| `screenshot` | `{}` | environment uploads PNG → result includes `files:[{file_id,url}]` (zero dependencies since agent v2.3.0 — PowerShell on Windows, `screencapture` on macOS, scrot/gnome-screenshot/maim/spectacle/import on Linux; result adds `capture_method`) |
 | `install` | `{"packages":["vlc"],"manager":"auto","timeout":1800}` | shell output of winget/choco (Windows) or apt/dnf/pacman (Linux) / pip. On permission errors it retries elevated **only** if the user configured elevation credentials or `auto_elevate`. |
 | `privilege_status` | `{}` | `{"elevated":bool,"platform":"...","auto_elevate":bool,"credentials_configured":bool,"sudo_available":bool,"method":"..."}` — check BEFORE running admin/root commands; elevation is optional and everything else works without it |
 | `privilege_run` | `{"command":"apt-get install -y htop","timeout":600}` | same shape as `shell` result, executed with admin/root rights: Linux `sudo -S`/`su -c` with user-configured password (or NOPASSWD sudo); Windows shows a UAC prompt the user must accept |

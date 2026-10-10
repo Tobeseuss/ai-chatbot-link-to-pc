@@ -15,6 +15,8 @@
 
 از نسخه **1.3.0** ایجنت فقط با کتابخانه استاندارد پایتون کار می‌کند: هیچ `pip install`، هیچ دانلود وابستگی و هیچ اینترنتی برای نصب لازم نیست. (`requirements.txt` فقط پیشنهادهای اختیاری مثل psutil و pyautogui دارد.)
 
+از نسخه **2.3.0** اسکرین‌شات هم بدون هیچ وابستگی کار می‌کند: ویندوز از PowerShell داخلی خود ویندوز (System.Drawing — کل صفحه مجازی)، مک از `screencapture` و لینوکس از یکی از ابزارهای سیستمی scrot / gnome-screenshot / maim / spectacle / ImageMagick استفاده می‌کند؛ pyautogui فقط fallback اختیاری آخر است و دیگر نیازی به نصب آن نیست.
+
 پس از اتصال، پیام `Registered as client #...` را می‌بینید؛ یعنی سیستم در پنل وردپرس (بخش «سیستم‌های متصل») ظاهر شده است.
 
 ## رفع خطای 404 ثبت‌نام (جدید در 1.3.1)
@@ -56,7 +58,7 @@ python aclp_agent.py chat
 | `file_download` | دریافت فایل از چت‌بات و ذخیره روی سیستم |
 | `open_url` | باز کردن مرورگر |
 | `http_request` | درخواست HTTP از IP سیستم شما (وب‌گردی ایجنت) |
-| `screenshot` | اسکرین‌شات (اختیاری؛ نیازمند `pip install pyautogui pillow`) |
+| `screenshot` | اسکرین‌شات — از v2.3.0 بدون هیچ وابستگی (ویندوز: PowerShell؛ مک: screencapture؛ لینوکس: scrot/gnome-screenshot/maim/spectacle/ImageMagick) |
 | `sysinfo` | اطلاعات سخت‌افزار و سیستم (psutil اختیاری) |
 | `process_list` / `kill_process` | مدیریت پردازه‌ها |
 | `install` | نصب برنامه (winget/choco ویندوز، apt/dnf/pacman لینوکس، pip) با تلاش مجدد اختیاری با دسترسی بالا |

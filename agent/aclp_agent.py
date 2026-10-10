@@ -8,9 +8,17 @@ Cross-platform agent (Windows / Linux) that connects the user's PC to the
 AI chatbots: shell commands, file operations, software installation,
 browser control, file transfers and more.
 
-Version : 1.4.0
+Version : 2.3.0
 License : GPL-2.0-or-later
 Repo    : https://github.com/Tobeseuss/ai-chatbot-link-to-pc
+
+Highlights in 2.3.0:
+- ZERO-DEPENDENCY SCREENSHOT: the `screenshot` action no longer needs pyautogui.
+  Windows uses its built-in PowerShell System.Drawing (full virtual screen),
+  macOS uses the built-in `screencapture`, Linux tries scrot / gnome-screenshot /
+  maim / spectacle / ImageMagick `import`. pyautogui remains only an optional
+  last-resort fallback. Nothing to pip-install: the agent folder is still fully
+  self-contained (owner requirement: all tools ship with the agent).
 
 Highlights in 1.4.0:
 - Version aligned with plugin v1.4.0: the plugin's AI onboarding text (principle 4,
@@ -69,7 +77,7 @@ import urllib.request
 import uuid
 import webbrowser
 
-__VERSION__ = "2.2.0"
+__VERSION__ = "2.3.0"
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aclp_agent.log")
@@ -738,16 +746,104 @@ def h_http_request(agent, payload):
     }, []
 
 
-@handler("screenshot")
-def h_screenshot(agent, payload):
+# ---------------------------------------------------------------------------
+# Screenshot — ZERO dependencies (v2.3.0+).
+#   Windows : PowerShell + System.Drawing (built into every Windows) — no pip.
+#   macOS   : built-in `screencapture` binary — no pip.
+#   Linux   : any installed CLI tool (scrot/gnome-screenshot/maim/spectacle/
+#             ImageMagick import) — no pip.
+#   pyautogui is only a last-resort OPTIONAL fallback if it happens to exist.
+# ---------------------------------------------------------------------------
+_LINUX_SHOT_TOOLS = (
+    ("scrot", "scrot -z {path}"),
+    ("gnome-screenshot", "gnome-screenshot -f {path}"),
+    ("maim", "maim {path}"),
+    ("spectacle", "spectacle -b -n -o {path}"),
+    ("import", "import -window root {path}"),
+)
+
+
+def _shot_via_pyautogui(path: str) -> bool:
+    """Optional fallback only. True if pyautogui+pillow are installed and it worked."""
     try:
         import pyautogui  # noqa
     except ImportError:
-        raise ACLPError("pyautogui is not installed (optional). Run: pip install pyautogui pillow")
+        return False
+    try:
+        pyautogui.screenshot().save(path)
+        return os.path.isfile(path)
+    except Exception:
+        return False
+
+
+def _screenshot_windows(path: str) -> str:
+    """Capture the whole virtual screen with PowerShell System.Drawing."""
+    esc_path = path.replace("'", "''")
+    ps = (
+        "Add-Type -AssemblyName System.Windows.Forms,System.Drawing; "
+        "$vs=[System.Windows.Forms.SystemInformation]::VirtualScreen; "
+        "$bmp=New-Object System.Drawing.Bitmap $vs.Width,$vs.Height; "
+        "$g=[System.Drawing.Graphics]::FromImage($bmp); "
+        "$g.CopyFromScreen($vs.Left,$vs.Top,0,0,$bmp.Size); "
+        f"$bmp.Save('{esc_path}',[System.Drawing.Imaging.ImageFormat]::Png); "
+        "$g.Dispose(); $bmp.Dispose()"
+    )
+    try:
+        # CREATE_NO_WINDOW (0x08000000) — this code path only runs on Windows.
+        proc = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps],
+            capture_output=True, timeout=60, creationflags=0x08000000,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        if _shot_via_pyautogui(path):
+            return "pyautogui"
+        raise ACLPError(f"Windows screenshot failed (PowerShell System.Drawing): {exc}")
+    if proc.returncode != 0 or not os.path.isfile(path):
+        err = (proc.stderr or b"").decode("utf-8", "replace").strip()[:300]
+        if _shot_via_pyautogui(path):
+            return "pyautogui"
+        raise ACLPError("Windows screenshot failed (PowerShell System.Drawing). " + err)
+    return "powershell"
+
+
+def _screenshot_macos(path: str) -> str:
+    result = _run_shell(f"screencapture -x {shlex.quote(path)}", 30)
+    if result.get("exit_code") == 0 and os.path.isfile(path):
+        return "screencapture"
+    if _shot_via_pyautogui(path):
+        return "pyautogui"
+    raise ACLPError("macOS screenshot failed: " + (result.get("stderr") or result.get("stdout") or "screencapture returned no file")[:300])
+
+
+def _screenshot_linux(path: str) -> str:
+    for name, template in _LINUX_SHOT_TOOLS:
+        if shutil.which(name):
+            result = _run_shell(template.format(path=shlex.quote(path)), 30)
+            if result.get("exit_code") == 0 and os.path.isfile(path):
+                return name
+    if _shot_via_pyautogui(path):
+        return "pyautogui"
+    raise ACLPError(
+        "No screenshot tool found on this Linux system. Install any ONE of: "
+        "scrot | gnome-screenshot | maim | spectacle | imagemagick (package manager, no pip needed) "
+        "— or optionally: pip install pyautogui pillow"
+    )
+
+
+@handler("screenshot")
+def h_screenshot(agent, payload):
     path = os.path.join(tempfile.gettempdir(), f"aclp_screenshot_{int(time.time())}.png")
-    shot = pyautogui.screenshot()
-    shot.save(path)
-    return {"format": "png", "size": os.path.getsize(path)}, [path]
+    system = platform_system()
+    if system == "Windows":
+        method = _screenshot_windows(path)
+    elif system == "Darwin":
+        method = _screenshot_macos(path)
+    else:
+        method = _screenshot_linux(path)
+    size = os.path.getsize(path) if os.path.isfile(path) else 0
+    if size == 0:
+        raise ACLPError("screenshot capture produced no file")
+    return {"format": "png", "size": size, "capture_method": method}, [path]
 
 
 @handler("install")

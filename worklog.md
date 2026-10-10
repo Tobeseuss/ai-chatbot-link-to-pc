@@ -234,3 +234,26 @@ Stage Summary:
 - Release v2.1.0: https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases/tag/v2.1.0
 - گام مالک: نصب ZIP افزونه 2.1.0 (سایت هنوز 1.4.0 است — دروازه URL و کدگذاری هر دو بعد از نصب فعال می‌شوند)؛ تست نمونه: `https://SITE/wp-json/aclp/v1/url/run?key=KEY&cmd64=ZWNobyAiaGVsbG8iICYmIGxz&wait=15`
 - قاعده اصل ۵ ادامه دارد: هر تغییر آینده دروازه URL را هم توسعه می‌دهد
+
+---
+
+Task ID: 10
+Agent: Super Z (main agent)
+Task: v2.3.0 — سه گزارش همزمان مالک: ① اسکرین‌شات بدون pyautogui («همه ابزارها داخل پوشه ایجنت») ② متن روش ۳ با کلید پیش‌ساخته در URL + جلوگیری از امتناع ChatGPT از باز کردن لینک ③ راهنمای مجزا برای هر روش با هر کلید — توسعه اصل اساسی ۵ طبق قاعده ماندگار + سینک سه‌گانه اصل ۴ + انتشار نسخه‌دار
+
+Work Log:
+- چک ریموت (اصل ۳): origin/main = c2f907c (v2.2.0) — همگام؛ زنده: ping tpptc.ir → سایت 2.2.0 با یک گره آنلاین (DESKTOP-ENF56CA)
+- ایجنت (aclp_agent.py): بازنویسی کامل `screenshot` — `_screenshot_windows` (PowerShell + System.Drawing با CREATE_NO_WINDOW و VirtualScreen همه مانیتورها)، `_screenshot_macos` (screencapture -x)، `_screenshot_linux` (scrot → gnome-screenshot → maim → spectacle → import + پیام خطای راهنما)؛ `_shot_via_pyautogui` فقط fallback؛ نتیجه `capture_method` دارد؛ `__VERSION__` → 2.3.0 + Highlights؛ requirements.txt و agent/README.fa.md بروز
+- پلاگین (class-aclp-utils.php): تابع جدید `agent_prompt_mode($mode,$site,$key)` — سه متن کوتاه مستقل (A: REST/Bearer، B: رله، C: دروازه URL) هرکدام با Connection settings + مراحل + فهرست انواع کار + قواعد مشترک؛ `agent_prompt()` پارامتر سوم `$method` (a|b|c → delegate؛ full = متن کامل قبلی — سازگاری ۱۰۰٪)؛ متن کامل: جای‌نگهدار `{KEY}` در همه آدرس‌های MODE C (ping/run/cmd64/type) + دو جمله ضد-امتناع («کلید را اضافه/ویرایش/سؤال نکن» + «باز کردن لینک کار خودِ ایجنت است، به کاربر ارجاع نده») + ping با کلید پیش‌ساخته
+- پلاگین (class-aclp-rest.php): `route_agent_prompt` — پارامتر `method=a|b|c` (مستعارهای mode_/method_) + `format=text` (صفحه text/plain با header+exit) + فیلد `method` در JSON؛ خودِ توزیع راهنما هم URL-only شد (توسعه اصل ۵)
+- داشبورد (class-aclp-admin-pages.php): منوی «روش اتصال» (متن کامل/A/B/C) کنار منوی کلید + چهار قالب server-rendered؛ aclp-admin.js: انتخاب قالب بر اساس روش + جای‌گذاری کلید در بلوک کلید (PH_BLOCK_RE) و همه URLها/هدرها (split/join روی PASTE_YOUR_REAL_API_KEY_HERE)
+- بلوک README با sync_prompt_readme.py (VERSION→2.3.0) بازتولید — طول 13048
+- نسخه‌ها → 2.3.0 در ۴ نقطه (هدر، ACLP_VERSION، readme.txt Stable tag، __VERSION__ ایجنت)
+- مستندات: CHANGELOG 2.3.0؛ AGENT-API.md (یادداشت v2.3.0 + بخش 3.2 با نمونه method/format=text + جدول اکشن‌ها)؛ README (بج + یادداشت v2.3.0 + دو ردیف قابلیت + بخش حالت C نکته کلید + ZIPها + نقشه راه v2.4-v2.6)؛ readme.txt (توضیح سه‌حالته + Changelog)؛ USER-GUIDE بخش ۱۵؛ SECURITY.md (agent-prompt با api_key در URL)؛ project.md (توسعه v2.3.0 در اصل ۵ + وضعیت + ADR 26)؛ brainstorm #۱۰
+- تست‌ها: **تست واحد جدید scripts/test_prompt_modes.php — 37/37 PASS** (بدون جای‌نگهدار باقی‌مانده، URLهای دارای کلید واقعی، عبارات ضد-امتناع، تطبیق regex جاوااسکریپت با هر ۴ قالب، delegating، alias mode_c، سازگاری heredoc با sync اسکریپت)؛ php -l روی ۴ فایل PHP ✓؛ py_compile ✓؛ تست b64 دروازه 20/20 ✓
+- build_release دو ZIP 2.3.0 → commit/push → Release v2.3.0 (دو asset) → کپی به download/
+
+Stage Summary:
+- Release v2.3.0: https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases/tag/v2.3.0
+- گام مالک: ① نصب ZIP پلاگین 2.3.0 ② جایگزینی aclp_agent.py از ZIP ایجنت 2.3.0 (بدون setup مجدد) و تست دوباره screenshot (باید از PowerShell اجرا شود — بدون pip) ③ داشبورد → منوی «روش اتصال» + کلید → کپی متن → دادن به ChatGPT (آدرس‌های روش C آماده و کامل‌اند)
+- قاعده اصل ۵ ادامه دارد: هر تغییر آینده دروازه URL را هم توسعه می‌دهد

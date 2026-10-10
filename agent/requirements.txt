@@ -1,8 +1,14 @@
-# ACLP Agent v1.3.0 — ZERO required dependencies.
+# ACLP Agent v2.3.0 — ZERO required dependencies.
 # The agent uses ONLY the Python standard library (Python 3.8+).
 # You do NOT need to run pip at all: the agent folder is self-contained.
 
+# Since v2.3.0 the `screenshot` action works WITHOUT any pip package:
+#   Windows -> built-in PowerShell System.Drawing
+#   macOS   -> built-in screencapture
+#   Linux   -> any ONE of these system packages (install via apt/dnf/pacman, NOT pip):
+#              scrot | gnome-screenshot | maim | spectacle | imagemagick
+
 # Optional extras (only if you want these specific features):
 #   psutil    -> nicer memory info in `sysinfo`, faster process listing
-#   pyautogui + pillow -> `screenshot` action
+#   pyautogui + pillow -> only a last-resort screenshot fallback on Linux
 # Install them manually if you want:  pip install psutil pyautogui pillow
