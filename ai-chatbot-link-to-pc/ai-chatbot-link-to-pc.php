@@ -3,7 +3,7 @@
  * Plugin Name:       AI Chatbot Link to PC
  * Plugin URI:        https://github.com/Tobeseuss/ai-chatbot-link-to-pc
  * Description:       پل ارتباطی بین چت‌بات‌های هوش مصنوعی و سیستم‌عامل کاربر (ویندوز/لینوکس). کلیدهای API نامحدود، پشتیبانی چند سیستم همزمان، اجرای دستور، انتقال فایل، گفتگوی مستقیم کاربر با هوش مصنوعی، تاریخچه کامل تعاملات.
- * Version:           2.4.0
+ * Version:           2.5.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Tobeseuss
@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
         exit; // دسترسی مستقیم ممنوع.
 }
 
-define( 'ACLP_VERSION', '2.4.0' );
+define( 'ACLP_VERSION', '2.5.0' );
 define( 'ACLP_FILE', __FILE__ );
 define( 'ACLP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'ACLP_URL', plugin_dir_url( __FILE__ ) );

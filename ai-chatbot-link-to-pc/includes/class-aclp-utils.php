@@ -161,6 +161,13 @@ class ACLP_Utils {
          * (تکرار ۱-۲ بار + نقل عینی خطای ابزار) و چک‌لیست پایان نوبت. صفحات خود
          * دروازه URL هم یادآوری AI-facing گرفتند (توسعه اصل ۵ — class-aclp-rest.php).
          *
+         * از v2.5.0 (گزارش میدانی مالک — «مدل صفحه را درست باز و بررسی می‌کند ولی
+         * به‌صورت خودکار اعلام می‌کند ابزار مرور وب ندارد»): بند CAPABILITY TRUTH
+         * به هر دو متن (کامل و کوتاه) اضافه شد — اگر مدل حتی یک صفحه را باز کرده،
+         * ابزار مرور او کار می‌کند و هر «من نمی‌توانم لینک باز کنم» گزاره‌ای غلط،
+         * ممنوع و نشانه شکست درخواست است؛ جای آن محتوای واقعی صفحه را بگو. یک
+         * قاعده مشابه هم به Rules هر دو متن و پانویس صفحات نتیجه دروازه اضافه شد.
+         *
          * @param string $site_url آدرس سایت (خالی = سایت فعلی) — همیشه خودکار جای‌گذاری می‌شود.
          * @param string $api_key  کلید API (خالی = جای‌نگهدار تا ایجنت از کاربر بپرسد).
          * @param string $method   full (پیش‌فرض) | a | b | c — متن کوتاه یک روش.
@@ -299,6 +306,20 @@ at the end of the URL, and the opened page shows the job report. Use MODE C
 ALSO whenever a request attempt returned "aclp_missing_key" — that error means
 your tool could not attach the key as a header.
 
+### CAPABILITY TRUTH — never deny your own browsing (field report, v2.5.0)
+Some chat models open these pages CORRECTLY and then automatically add
+"I don't have web-browsing tools / I cannot open links". In this situation that
+statement is FALSE and it is FORBIDDEN here:
+- If you opened even ONE page of this service (ping, ticket or result page),
+  you HAVE a working browsing tool — whatever your platform names it
+  (browse / browser / web.run / web fetch / open_url / url_reader / search).
+- Never output any "I cannot browse / cannot open links" disclaimer before,
+  during or after an ACLP task: it contradicts your own actions and confuses
+  the user into thinking the job failed.
+- The only acceptable browsing failure is quoting your tool's REAL error
+  verbatim after 1-2 honest retries (protocol below). Anything else is denial,
+  and denial is a failed request.
+
 ### THE CONTRACT — a request is complete ONLY after you have read the page
 Building the URL is only the FIRST HALF of a request. A URL that is never
 opened is NOT a request: nothing runs, nothing is queued, nothing comes back.
@@ -407,6 +428,9 @@ operator approval); shell also accepts {"elevated": true} when configured.
   your browsing tool for every URL, read every returned page, and quote real
   page values? If any answer is "no", your job is not done — go back and open
   the URL now (THE CONTRACT above).
+- If you already opened any ACLP page (ping, ticket, result), never claim you
+  lack web-browsing tools: the pages you opened prove the opposite. Report
+  page contents, not tool-disclaimers.
 - Say briefly what each job does before submitting it.
 - Files you receive include "download_url" — a signed link that works without any header.
 - Full API reference (open it if unsure): {REPO_URL}/blob/main/docs/AGENT-API.md
@@ -418,7 +442,7 @@ PROMPT;
                 $prompt = str_replace(
                         array( '{VERSION}', '{SITE_URL}', '{KEY_LINE}', '{API_KEY_PH}', '{KEY}', '{REPO_URL}' ),
                         array(
-                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '2.4.0',
+                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '2.5.0',
                                 untrailingslashit( (string) $site_url ),
                                 $key_line,
                                 $api_key_ph,
@@ -502,6 +526,9 @@ JOBT;
   your browsing tool for every URL, read every returned page, and quote real
   page values? If any answer is "no", your job is not done — go back and open
   the URL now (THE CONTRACT above).
+- If you already opened any ACLP page (ping, ticket, result), never claim you
+  lack web-browsing tools: the pages you opened prove the opposite. Report
+  page contents, not tool-disclaimers.
 - Say briefly what each job does before submitting it.
 - Files you receive include "download_url" — a signed link that works without any header.
 - Full API reference (open it if unsure): {REPO_URL}/blob/main/docs/AGENT-API.md
@@ -621,6 +648,11 @@ describing what the page "would" show without reading it, or inventing results.
 If your browsing tool errors or times out: retry the same URL once or twice,
 then quote the tool's error message verbatim — never fake the page content.
 
+CAPABILITY TRUTH: if you opened even ONE page of this service, your browsing
+tool WORKS — never say "I don't have web browsing / cannot open links". Such
+disclaimers are false and forbidden here; they contradict your own actions and
+must be replaced by the actual page contents.
+
 ## Step 0 — connection check (optional, plain-text page, no job created)
     {SITE_URL}/wp-json/aclp/v1/ping?key={KEY}&format=text
 
@@ -681,7 +713,7 @@ MODEC;
                 $prompt = str_replace(
                         array( '{VERSION}', '{SITE_URL}', '{KEY_LINE}', '{API_KEY_PH}', '{KEY}', '{REPO_URL}' ),
                         array(
-                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '2.4.0',
+                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '2.5.0',
                                 untrailingslashit( (string) $site_url ),
                                 $key_line,
                                 $api_key_ph,

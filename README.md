@@ -2,7 +2,7 @@
 
 > پل ارتباطی بین چت‌بات‌های هوش مصنوعی و سیستم‌عامل کاربر (ویندوز / لینوکس) — افزونه وردپرس + ایجنت پایتون
 
-[![Version](https://img.shields.io/badge/version-2.4.0-blue.svg)](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases)
+[![Version](https://img.shields.io/badge/version-2.5.0-blue.svg)](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases)
 [![License](https://img.shields.io/badge/license-GPL--2.0-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey.svg)]()
 
@@ -23,9 +23,11 @@
 > **از v2.3.0 (درخواست مالک):** ① **انتخاب مجزای راهنما برای هر روش** — راهنمای اتصال طولانی شده بود؛ حالا در داشبورد پلاگین یک منوی «روش اتصال» کنار منوی کلید API اضافه شده و می‌توانید فقط متن کوتاه همان روش (کامل / A / B / C) را با هر کلید بسازید و کپی کنید؛ از REST هم `GET /agent-prompt?method=c&api_key=...&format=text` همین کار را می‌کند (خودِ توزیع راهنما هم از طریق باز کردن URL — توسعه اصل ۵). ② **کلید از ابتدا در URL روش ۳** — همه آدرس‌های MODE C از همان ابتدا `key=...` را داخل خود دارند و از هوش مصنوعی خواسته نمی‌شود کلید را در URL بگذارد؛ متن صریحاً می‌گوید باز کردن لینک‌ها کار خود ایجنت است (نه کاربر) تا مثل گزارش مالک، ChatGPT لینک را به کاربر پس ندهد. ③ **اسکرین‌شات بدون هیچ وابستگی** — اکشن `screenshot` ایجنت دیگر pyautogui نمی‌خواهد: ویندوز با PowerShell داخلی خودش (System.Drawing)، مک با `screencapture` و لینوکس با scrot/gnome-screenshot/maim/spectacle/ImageMagick کار می‌کند؛ pyautogui فقط fallback اختیاری است.
 >
 > **از v2.4.0 (درخواست مالک — «هوش‌ها دستور را درست در URL می‌گذارند ولی هیچ‌کدام عملاً آدرس را باز نمی‌کنند»):** متن روش C از «توصیف» به **قرارداد مکانیکی اجباری (THE CONTRACT)** تبدیل شد: ساختن URL فقط نیمی از درخواست است؛ درخواست فقط وقتی کامل است که مدل ① ابزار مرور وب خودش را با URL کامل **واقعاً فراخوانی** کند (browse / web.run / web fetch / open_url — هر اسمی که پلتفرم می‌گذارد)، ② صفحه برگشتی را بخواند (نتیجه فقط همان‌جاست)، ③ در حالت pending همان RESULT URL را دوباره باز کند، ④ محتوای واقعی صفحه را به کاربر گزارش کند. فهرست **FORBIDDEN** تحویل URL به کاربر، «لطفاً این لینک را باز کنید»، پایان نوبت بعد از فقط ساختن URL و حدس نتیجه را ممنوع کرده و پروتکل خطای ابزار مرور (تکرار ۱-۲ بار + نقل عینی خطا) آمده است. **توسعه اصل ۵:** خودِ صفحات دروازه URL هم یادآوری AI-facing گرفتند — صفحه ticket در انتظار، صفحه نتیجه، صفحه راهنما و صفحات خطا حالا در انتهایشان دستور بعدیِ مکانیکی مدل را چاپ می‌کنند («دوباره با ابزار خودت باز کن» / «الان نتیجه را به کاربر گزارش بده»).
+>
+> **از v2.5.0 (گزارش میدانی مالک — DeepSeek صفحه را درست باز و بررسی می‌کند ولی «به‌صورت خودکار اعلام می‌کند ابزار مرور وب ندارد»):** بند **CAPABILITY TRUTH** به متن روش C (کامل و کوتاه) اضافه شد — اگر مدل حتی یک صفحه از این سرویس را باز کرده باشد، ابزار مرور او **کار می‌کند** و هر جمله «من نمی‌توانم لینک باز کنم / ابزار مرور وب ندارم» گزاره‌ای **غلط، ممنوع و نشانه شکستِ درخواست** است؛ جای آن محتوای واقعی صفحه را گزارش بدهد. یک قاعده مشروط مشابه هم به Rules هر سه متن اضافه شد. **توسعه اصل ۵:** پانویس صفحات ticket و نتیجه دروازه هم حالا همین واقعیت را به مدل یادآوری می‌کنند («باز کردن همین صفحه ثابت کرد ابزار مرورت کار می‌کند — هرگز نگو نمی‌توانی لینک باز کنی»). **رفع باگ مهم سمت سرور:** در `POST /agent/commands/{uid}/result` ارجاع فایل‌های ایجنت (دیکشنری `{"file_id":...}`) با کست `(int)` همیشه به «۱» تبدیل می‌شد و فایل شماره ۱ کلید (معمولاً اولین اسکرین‌شات) در **هر** نتیجه فایل‌دار بعدی دوباره به فرمان جدید وصل می‌شد — دقیقاً همان گزارش «نتیجه اسکرین‌شات شامل همه اسکرین‌شات‌های قبلی است»؛ اکنون شکل int/دیکشنری نرمالایز می‌شود و فقط فایل‌های بدون فرمانِ همان کلید وصل می‌شوند. تست‌های واحد پرامپت به ۸۱ مورد رسید.
 
 ```text
-# ACLP BRIDGE — API CLIENT INTEGRATION GUIDE (v2.4.0)
+# ACLP BRIDGE — API CLIENT INTEGRATION GUIDE (v2.5.0)
 
 The ACLP Bridge is a REST job-processing service. You interact with it exactly
 like any other API: you build a JSON request, submit it to one endpoint, and the
@@ -144,6 +146,20 @@ at the end of the URL, and the opened page shows the job report. Use MODE C
 ALSO whenever a request attempt returned "aclp_missing_key" — that error means
 your tool could not attach the key as a header.
 
+### CAPABILITY TRUTH — never deny your own browsing (field report, v2.5.0)
+Some chat models open these pages CORRECTLY and then automatically add
+"I don't have web-browsing tools / I cannot open links". In this situation that
+statement is FALSE and it is FORBIDDEN here:
+- If you opened even ONE page of this service (ping, ticket or result page),
+  you HAVE a working browsing tool — whatever your platform names it
+  (browse / browser / web.run / web fetch / open_url / url_reader / search).
+- Never output any "I cannot browse / cannot open links" disclaimer before,
+  during or after an ACLP task: it contradicts your own actions and confuses
+  the user into thinking the job failed.
+- The only acceptable browsing failure is quoting your tool's REAL error
+  verbatim after 1-2 honest retries (protocol below). Anything else is denial,
+  and denial is a failed request.
+
 ### THE CONTRACT — a request is complete ONLY after you have read the page
 Building the URL is only the FIRST HALF of a request. A URL that is never
 opened is NOT a request: nothing runs, nothing is queued, nothing comes back.
@@ -252,6 +268,9 @@ operator approval); shell also accepts {"elevated": true} when configured.
   your browsing tool for every URL, read every returned page, and quote real
   page values? If any answer is "no", your job is not done — go back and open
   the URL now (THE CONTRACT above).
+- If you already opened any ACLP page (ping, ticket, result), never claim you
+  lack web-browsing tools: the pages you opened prove the opposite. Report
+  page contents, not tool-disclaimers.
 - Say briefly what each job does before submitting it.
 - Files you receive include "download_url" — a signed link that works without any header.
 - Full API reference (open it if unsure): https://github.com/Tobeseuss/ai-chatbot-link-to-pc/blob/main/docs/AGENT-API.md
@@ -330,14 +349,14 @@ operator approval); shell also accepts {"elevated": true} when configured.
 
 ### گام ۱ — نصب افزونه در وردپرس
 
-1. از بخش [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) فایل `ai-chatbot-link-to-pc-v2.4.0.zip` را دانلود کنید.
+1. از بخش [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) فایل `ai-chatbot-link-to-pc-v2.5.0.zip` را دانلود کنید.
 2. در وردپرس: **افزونه‌ها ← افزودن ← بارگذاری افزونه** و فایل ZIP را نصب و فعال کنید.
 3. منوی جدید **«AI-PC Link»** در پیشخوان ظاهر می‌شود.
 
 ### گام ۲ — ساخت کلید API و نصب ایجنت
 
 1. **AI-PC Link ← کلیدهای API ← ساخت کلید جدید** — کلید ساخته می‌شود و از همان‌جا و در هر زمان آینده قابل مشاهده و کپی است (دکمه «کپی» کنار کلید).
-2. فایل `aclp-agent-v2.4.0.zip` را از Releases دانلود و روی سیستم خود (ویندوز/لینوکس) استخراج کنید.
+2. فایل `aclp-agent-v2.5.0.zip` را از Releases دانلود و روی سیستم خود (ویندوز/لینوکس) استخراج کنید.
 3. اجرا کنید:
    - **ویندوز:** دوبار کلیک روی `start_agent.bat`
    - **لینوکس:** `chmod +x start_agent.sh && ./start_agent.sh`
@@ -414,8 +433,8 @@ JSON پیچیده کارهای پیشرفته هم از طریق `payload64` (ه
 
 | فایل | کاربرد | محل |
 |------|--------|-----|
-| `ai-chatbot-link-to-pc-v2.4.0.zip` | افزونه وردپرس | [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) |
-| `aclp-agent-v2.4.0.zip` | ایجنت سیستم (پایتون — بدون هیچ وابستگی) | [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) |
+| `ai-chatbot-link-to-pc-v2.5.0.zip` | افزونه وردپرس | [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) |
+| `aclp-agent-v2.5.0.zip` | ایجنت سیستم (پایتون — بدون هیچ وابستگی) | [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) |
 
 پیش‌نیازها: وردپرس 5.8+ با PHP 7.4+ · پایتون 3.8+ روی سیستم کاربر
 
@@ -465,6 +484,8 @@ JSON پیچیده کارهای پیشرفته هم از طریق `payload64` (ه
 | آدرس `/url/run` خطای 404 می‌دهد | افزونه سایت هنوز نسخه **2.0.0+** نیست — ZIP جدید را نصب کنید (`/ping` باید `"url_gate": true` برگرداند) |
 | صفحه می‌گوید `cmd64 is not valid Base64` | دستور پیچیده را درست Base64 نکرده‌اید — متن دستور را Base64 کنید و شکل URL-safe بسازید (`+` به `-`، `/` به `_`، حذف `=`)؛ پایه‌ی دیکد استاندارد هم پذیرفته است؛ بعد آدرس را دوباره باز کنید |
 | هوش مصنوعی URL را می‌سازد ولی باز نمی‌کند / لینک را به کاربر پس می‌دهد | متن روش C نسخه **2.4.0+** را به مدل بدهید (داشبورد ← روش C) — قرارداد اجباری «فراخوانی ابزار مرور ← خواندن صفحه ← تکرار RESULT URL ← گزارش به کاربر» + فهرست FORBIDDEN دارد؛ صفحات دروازه هم خودشان به مدل یادآوری می‌دهند. اگر مدل واقعاً ابزار مرور وب ندارد، این را صریح بپرسید و از روش B (رله) استفاده کنید |
+| هوش مصنوعی صفحه را درست باز و بررسی می‌کند ولی می‌گوید «ابزار مرور وب ندارم» | از متن روش C نسخه **2.5.0+** استفاده کنید — بند **CAPABILITY TRUTH** این جمله خودتناقض را صریحاً ممنوع کرده (باز کردن هر صفحه از این سرویس ثابت می‌کند ابزار مرور کار می‌کند) و پانویس صفحات ticket/نتیجه هم همین را یادآوری می‌کنند؛ اگر باز ادامه داد، مدل مذکور را کنار بگذارید یا از روش B استفاده کنید |
+| نتیجه دستور اسکرین‌شات (یا هر کار فایل‌دار) فایل‌های قبلی را هم نشان می‌دهد | باگ سمت سرور بود — در نسخه **2.5.0** رفع شد؛ ZIP افزونه 2.5.0 را نصب کنید (ایجنت نیازی به تغییر ندارد) |
 | خطای حجم فایل | مقدار `post_max_size` و `upload_max_filesize` PHP سرور را افزایش دهید |
 | آپلود بزرگ شکست می‌خورد | در تنظیمات پلاگین سقف حجم را کم کنید یا محدودیت PHP را بالا ببرید |
 | دستورات مدیر اجرا نمی‌شوند | اکشن `privilege_status` را بزنید؛ در لینوکس `elevation_password` را در config.json بگذارید، در ویندوز روی پیام UAC «Yes» بزنید یا ایجنت را با Run as administrator اجرا کنید |
@@ -487,9 +508,10 @@ JSON پیچیده کارهای پیشرفته هم از طریق `payload64` (ه
 - [x] **v2.2.0 (توسعه اصل ۵ — تست میدانی با ChatGPT):** دروازه URL دقیقاً مثل ChatGPT تست شد و سه مانع واقعی حذف شد: ① `GET /ping` حالا کلید را از query می‌پذیرد و با `&format=text` صفحه متنی انگلیسی می‌دهد (تست اتصال ایجنت‌های فقط-URL + شمارش گره‌های آنلاین)؛ ② گزارش دروازه خط **NODE** دارد (نام گره، آنلاین/آفلاین، سن ضربان) و متن pending راهنمای واقع‌بینانه می‌دهد (تکرار RESULT URL با `&wait=20` هر ۵-۱۰ ثانیه تا ~۲ دقیقه — pickup معمول ۵-۱۰ ثانیه، گره شلوغ تا ~۶۰ ثانیه)؛ ③ متن اصل ۴: تشخیص خودکار «شما یک چت‌بات مرورگری هستید → MODE C»، ارسال با `wait=0` (ticket فوری، بدون timeout ابزار مرور) و باز کردن دوباره RESULT URL؛ `/ping` فیلد `url_gate_ping`
 - [x] **v2.3.0 (درخواست مالک):** راهنمای مجزا برای هر روش با هر کلید (داشبورد + `GET /agent-prompt?method=...&format=text`)؛ کلید API از ابتدا در همه URLهای روش C با متن «باز کردن لینک کار خودِ ایجنت است» برای جلوگیری از امتناع/ارجاع چت‌بات‌های مرورگر؛ اسکرین‌شات صفر-وابستگی (PowerShell/screencapture/ابزارهای لینوکس — pyautogui فقط fallback)؛ تست واحد ۳۷ موردی برای متون راهنما
 - [x] **v2.4.0 (توسعه اصل ۵ — درخواست مالک: «هوش‌ها URL را می‌سازند ولی باز نمی‌کنند»):** متن روش C به **قرارداد مکانیکی اجباری (THE CONTRACT)** تبدیل شد — توالی ۴ مرحله‌ای فراخوانی واقعی ابزار مرور ← خواندن صفحه ← تکرار RESULT URL ← گزارش به کاربر + فهرست FORBIDDEN (تحویل URL به کاربر، «لطفاً باز کنید»، پایان نوبت بعد از فقط ساختن URL، حدس نتیجه) + پروتکل خطای ابزار مرور + چک‌لیست پایان نوبت در قواعد؛ **صفحات خود دروازه** (ticket در انتظار / نتیجه / راهنما / خطا) پانویس یادآوری AI-facing گرفتند؛ تست واحد به ۶۲ مورد رسید
-- [ ] **v2.5** — WebSocket برای دریافت لحظه‌ای فرمان (بدون polling) + اعلان به چت‌بات با webhook + توسعه بیشتر دروازه URL (broadcast و صف چندفرمانی از طریق URL)
-- [ ] **v2.6** — رمزنگاری سرتاسری payload، پشتیبانی macOS، حالت تأیید دستوری اختیاری
-- [ ] **v2.7** — اجرای زمان‌بندی‌شده فرمان‌ها، گروه‌بندی سیستم‌ها، نقش‌های کاربری
+- [x] **v2.5.0 (توسعه اصل ۵ — گزارش میدانی مالک):** ① بند **CAPABILITY TRUTH** در متن روش C (کامل و کوتاه) + قاعده مشروط در Rules + پانویس ضد-امتناع در صفحات ticket/نتیجه — مدل‌هایی که صفحه را درست باز می‌کنند ولی «به‌صورت خودکار» می‌گویند ابزار مرور ندارند، حالا به‌طور صریح ممنوع‌اند (باز کردن هر صفحه = اثبات ابزار مرور)؛ ② **رفع باگ سمت سرور** اتصال فایل به فرمان: کست `(int)` روی دیکشنری `file_id` همیشه «۱» می‌داد و فایل شماره ۱ کلید در هر نتیجه فایل‌دار تکرار می‌شد (گزارش مالک: «نتیجه اسکرین‌شات شامل همه اسکرین‌شات‌های قبلی است») — نرمالایز شکل + گارد key_id/command_id؛ تست واحد به ۸۱ مورد رسید
+- [ ] **v2.6** — WebSocket برای دریافت لحظه‌ای فرمان (بدون polling) + اعلان به چت‌بات با webhook + توسعه بیشتر دروازه URL (broadcast و صف چندفرمانی از طریق URL)
+- [ ] **v2.7** — رمزنگاری سرتاسری payload، پشتیبانی macOS، حالت تأیید دستوری اختیاری
+- [ ] **v2.8** — اجرای زمان‌بندی‌شده فرمان‌ها، گروه‌بندی سیستم‌ها، نقش‌های کاربری
 
 پیشنهادهای شما هم خوشآمدید — [Issue بسازید](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/issues).
 

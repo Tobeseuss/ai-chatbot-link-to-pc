@@ -3,7 +3,31 @@
 > **Persian note (برای کاربر):** این سند عمداً به انگلیسی نوشته شده است، چون مخاطب اصلی آن چت‌بات‌ها و ایجنت‌های هوش مصنوعی هستند که مستندات انگلیسی را قابل‌اعتمادتر پارس می‌کنند. راهنمای فارسی کاربر: `docs/USER-GUIDE.fa.md`. این فایل را در system prompt یا ابزار knowledge چت‌بات خود قرار دهید تا بداند چگونه با سیستم کاربر تعامل کند.
 
 Base URL: `https://YOUR-SITE.com/wp-json/aclp/v1`
-Plugin version: 2.4.0 · API namespace: `aclp/v1`
+Plugin version: 2.5.0 · API namespace: `aclp/v1`
+
+> **v2.5.0 — CAPABILITY TRUTH: never deny your own browsing (owner field report:
+> "the model opens and reviews the page correctly, then automatically announces it
+> has no web-browsing tools") + RESULT-FILE ATTACHMENT BUGFIX:**
+> (1) The MODE C guides (full + short) now carry a **CAPABILITY TRUTH** block: if you
+> opened even ONE page of this service (ping, ticket or result page), your browsing
+> tool WORKS — whatever your platform names it (browse / browser / web.run / web
+> fetch / open_url / url_reader / search). Statements like "I don't have web-browsing
+> tools / I cannot open links" are FALSE in that situation, contradict your own
+> actions, confuse the user into thinking the job failed, and are FORBIDDEN. The only
+> acceptable browsing failure is quoting your tool's REAL error verbatim after 1-2
+> honest retries. A conditional rule in the Rules section of every guide repeats this
+> ("If you already opened any ACLP page, never claim you lack web-browsing tools").
+> **The gate pages reinforce it at the point of consumption**: the finished report
+> footer now adds "You opened this page with YOUR OWN browsing tool — that tool
+> WORKS. Never tell the user you 'cannot browse / cannot open links'" and the pending
+> ticket footer adds "Opening this page already proves your browsing tool works".
+> (2) **Bugfix in `POST /agent/commands/{uid}/result`:** the agent sends `files` as a
+> list of dicts (`{"file_id": N, ...}`); the old code cast each element with `(int)`,
+> and `(int) array` is always `1` in PHP — so file #1 of the key (typically the first
+> screenshot ever taken) was re-attached to every new file-bearing command ("a new
+> screenshot result contains all previous screenshots"). The server now normalizes
+> int/dict refs and only attaches unattached files (`command_id = 0`) of the SAME key
+> — update the WordPress plugin ZIP to 2.5.0; the agent needs no update.
 
 > **v2.4.0 — THE CONTRACT: OPENING THE URL IS MANDATORY (Principle 5 development,
 > owner report: "AIs build the URL correctly but none of them actually opens it to
@@ -263,11 +287,18 @@ curl or wget **without any auth header**. Use it when you cannot set custom head
 you want to hand a file to the user/another AI as a plain link. Links stay valid while the
 file exists (retention policy governs deletion).
 
-### 3.10 `GET /url/run` + `GET /url/result` — URL GATE (v2.0.0, Principle 5; Base64 since v2.1.0; mandatory-open contract since v2.4.0)
+### 3.10 `GET /url/run` + `GET /url/result` — URL GATE (v2.0.0, Principle 5; Base64 since v2.1.0; mandatory-open contract since v2.4.0; capability truth since v2.5.0)
 
 For agents that say *"I cannot use APIs"* but **can open and browse a web page**: put the
 command at the end of the URL, open it, and **the opened page shows the plain-text job
 report** — no POST, no headers, no JSON parsing required. Auth = the `key` query parameter.
+
+**CAPABILITY TRUTH (v2.5.0):** if you opened even ONE page of this service (ping, ticket
+or result page), your browsing tool WORKS — whatever your platform names it (browse /
+browser / web.run / web fetch / open_url / url_reader / search). Saying "I don't have
+web-browsing tools / I cannot open links" after opening a page is FALSE, contradicts your
+own actions, and is FORBIDDEN — report the page contents instead. The only acceptable
+browsing failure is quoting your tool's REAL error verbatim after 1-2 honest retries.
 
 **THE CONTRACT (v2.4.0 — mandatory):** building the URL is only the FIRST HALF of a
 request. A URL that is never opened is NOT a request — nothing runs, nothing is queued,
@@ -309,7 +340,7 @@ GET https://YOUR-SITE.com/wp-json/aclp/v1/url/run?key=aclp_live_xxx&cmd=echo%20h
 The page (Content-Type `text/plain`) looks like:
 
 ```
-ACLP URL GATE — job report (ACLP Bridge v2.4.0)
+ACLP URL GATE — job report (ACLP Bridge v2.5.0)
 --------------------------------------------------------------
 JOB:      9c1f6b2e-1d4a-4c3e-9a2f-5f8e7d6c5b4a (shell)
 STATUS:   completed
@@ -328,13 +359,18 @@ FILES: (none)
 AGENT (you, reading this page): the job is finished — now REPORT the
 RESULT/ERROR above to the user in your own words. Do not end the turn
 by handing over raw URLs instead of the actual result.
+You opened this page with YOUR OWN browsing tool — that tool WORKS.
+Never tell the user you "cannot browse / cannot open links": you just
+did. No tool-disclaimers — report the content above.
 ```
 
-Note the **AI-facing footer** (v2.4.0): every gate page ends with the mechanical next
-step for the reading agent — finished pages say "report the RESULT to the user now",
-pending pages say "open the RESULT URL above again with YOUR browsing tool", error
-pages say "fix the URL yourself and open the corrected URL again". Treat that footer
-as part of the protocol.
+Note the **AI-facing footer** (v2.4.0, anti-denial lines since v2.5.0): every gate page
+ends with the mechanical next step for the reading agent — finished pages say "report
+the RESULT to the user now" plus the CAPABILITY TRUTH reminder ("you opened this page —
+your browsing tool works; never claim otherwise"), pending pages say "open the RESULT
+URL above again with YOUR browsing tool" and "opening this page already proves your
+browsing tool works", error pages say "fix the URL yourself and open the corrected URL
+again". Treat that footer as part of the protocol.
 
 If `STATUS` is still `pending`/`running`, the page prints a ready-made RESULT URL (with
 `&wait=20`, so the opened page itself waits up to 20 seconds) plus realistic guidance —
