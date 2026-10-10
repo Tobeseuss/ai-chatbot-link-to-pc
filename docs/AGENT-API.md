@@ -230,6 +230,13 @@ MODE C guide text itself is injection-safe since v2.6.0: it describes the API po
 ("the URL is the request, the page is the response") instead of policing the model's
 speech — field evidence showed aggressive wording made models classify the guide as a
 prompt-injection payload.
+**v2.7.0:** HTML-escaped URLs are understood — `?method=c&amp;format=text&amp;key=...` renders
+exactly like the clean URL (`ACLP_Utils::fix_amp_params` maps `amp;`-prefixed query params back
+to clean names in `/ping`, `/agent-prompt`, `/url/run` and `/url/result`; clean names always win).
+Models frequently emit `&amp;` in chat output and fetchers pass it through literally — that field
+failure made the model see the PLACEHOLDER-key guide (the `amp;key` param was invisible) and obey
+the old "STOP and ask the user" line. The no-key guide now self-heals instead (take the key from
+any ACLP URL in the conversation).
 MODE C URLs inside the returned text carry the key **pre-embedded** — the agent never has to
 add credentials to a URL (owner rule since v2.3.0).
 The `prompt` field is a ready-made, professional instruction block covering **three modes**:
@@ -328,7 +335,7 @@ curl or wget **without any auth header**. Use it when you cannot set custom head
 you want to hand a file to the user/another AI as a plain link. Links stay valid while the
 file exists (retention policy governs deletion).
 
-### 3.10 `GET /url/run` + `GET /url/result` — URL GATE (v2.0.0, Principle 5; Base64 since v2.1.0; mandatory-open contract since v2.4.0; capability truth since v2.5.0)
+### 3.10 `GET /url/run` + `GET /url/result` — URL GATE (v2.0.0, Principle 5; Base64 since v2.1.0; mandatory-open contract since v2.4.0; capability truth since v2.5.0; one-URL-per-job wait=20 default + entity-proof params since v2.7.0)
 
 For agents that say *"I cannot use APIs"* but **can open and browse a web page**: put the
 command at the end of the URL, open it, and **the opened page shows the plain-text job
@@ -370,9 +377,11 @@ plain `cmd` (URL-encoded).
 GET https://YOUR-SITE.com/wp-json/aclp/v1/url/run?key=aclp_live_xxx&cmd=echo%20hello&wait=15
 ```
 
-Chat AIs with a **browsing tool** (ChatGPT, Claude, Gemini, ...): submit with **`wait=0`** —
-the page answers instantly with the ticket (no long-blocking request that could hit your
-browser-tool timeout), then re-open the RESULT URL printed on the page:
+**v2.7.0 — one URL per job:** submit with **`wait=20` by default** — the page waits up to
+~20s and usually already contains the FINISHED result, so a single URL completes the job
+(no ticket round, one paste per job). Use **`wait=0` only for jobs that can outlive ~20s**
+(big installs, big file transfers) — the page then answers instantly with the ticket and you
+re-open the printed RESULT URL (which carries `&wait=20`):
 
 ```
 GET https://YOUR-SITE.com/wp-json/aclp/v1/url/run?key=aclp_live_xxx&cmd=echo%20hello&wait=0
@@ -433,7 +442,7 @@ GET https://YOUR-SITE.com/wp-json/aclp/v1/url/result?key=aclp_live_xxx&ticket=<J
 | `payload` | ONE line of URL-encoded JSON for advanced jobs, e.g. `&type=file_list&payload=%7B%22path%22%3A%22C%3A%2F%22%7D` |
 | `payload64` | the same ONE-line JSON **Base64-encoded** — recommended for complex JSON; example: `payload64=eyJwYXRoIjoiQzovIn0=` = `{"path":"C:/"}` |
 | `client` (or `client_uid`) | target node — required only when several nodes share the key (without it, the page returns a `select_node` list to re-open with) |
-| `wait` | 0-25 seconds the page keeps collecting the result (default 15) |
+| `wait` | 0-25 seconds the page keeps collecting the result (default 15; **20 recommended since v2.7.0** — finished result usually inline; 0 = instant ticket + RESULT URL for long jobs) |
 | `format` | `text` (default) \| `json` — `json` returns the same object as `GET /commands/{uid}` |
 | `source` | optional free-form label (default `url-gate`) shown in the owner's history |
 
@@ -441,6 +450,8 @@ GET https://YOUR-SITE.com/wp-json/aclp/v1/url/result?key=aclp_live_xxx&ticket=<J
 `wait` 0-25 (default 10 — the page waits for completion), `format` (`text`|`json`).
 
 **Gotchas & etiquette:**
+- **HTML-escaped URLs are accepted (v2.7.0):** if your output contains `&amp;` instead of `&`,
+  open it as-is — the server maps `amp;`-prefixed params back to clean names (clean names win).
 - Opening `/url/run` without `cmd`/`cmd64`/`type`/`payload`/`payload64` prints a self-describing
   usage page (it documents the Base64 rule too).
 - **Always Base64-encode complex commands into `cmd64`** — raw complex text breaks the URL.

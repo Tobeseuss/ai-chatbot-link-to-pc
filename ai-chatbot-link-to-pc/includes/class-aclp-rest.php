@@ -169,6 +169,9 @@ class ACLP_REST {
          * ------------------------------------------------------------------- */
 
         public static function route_ping( $request ) {
+                // v2.7.0 (توسعه اصل ۵): جبران URLهای HTML-escape شده (&amp; در پیام مدل) —
+                // پارامترهای amp;key و amp;format به نام تمیز نگاشت می‌شوند.
+                ACLP_Utils::fix_amp_params( $request );
                 // توسعه اصل ۵ (v2.2.0): ایجنت‌های «فقط-URL» کلید را در query می‌گذارند و
                 // صفحه متنی می‌خواهند. اگر هدری نبود، پارامتر key/api_key به مسیر استاندارد
                 // احراز هویت می‌رود؛ با format=text خروجی text/plain انگلیسی داده می‌شود.
@@ -238,6 +241,8 @@ class ACLP_REST {
          * هم از طریق «باز کردن URL» برای ایجنت‌های مرورگری امکان‌پذیر می‌شود (اصل ۵).
          */
         public static function route_agent_prompt( $request ) {
+                // v2.7.0 (توسعه اصل ۵): جبران URLهای HTML-escape شده (&amp; در پیام مدل).
+                ACLP_Utils::fix_amp_params( $request );
                 $api_key = (string) $request->get_param( 'api_key' );
                 if ( '' === $api_key ) {
                         // v2.6.0 — نام‌های یکسان با دروازه URL: key/api_key هر دو پذیرفته
@@ -269,7 +274,7 @@ class ACLP_REST {
                         'ok'        => true,
                         'version'   => ACLP_VERSION,
                         'method'    => $is_mode ? substr( $method, 0, 1 ) : 'full',
-                        'usage'     => 'Feed this text to any AI/LLM agent so it can use the PC bridge. Pass ?api_key=... to embed a real key, or leave it out so the agent asks the user. v2.3.0: add &method=a|b|c for the short single-mode guide and &format=text for a plain-text page you can just open in a browser.',
+                        'usage'     => 'Feed this text to any AI/LLM agent so it can use the PC bridge. Pass ?api_key=... to embed a real key, or leave it out so the agent asks the user. v2.3.0: add &method=a|b|c for the short single-mode guide and &format=text for a plain-text page you can just open in a browser. v2.7.0: HTML-escaped URLs (&amp; for &) are understood too.',
                         'docs_url'  => untrailingslashit( (string) ACLP_Settings::get( 'github_repo_url' ) ) . '/blob/main/docs/AGENT-API.md',
                         'repo_url'  => untrailingslashit( (string) ACLP_Settings::get( 'github_repo_url' ) ),
                         'prompt'    => $prompt,
@@ -1122,9 +1127,13 @@ class ACLP_REST {
                         "  payload64 the same JSON as Base64 — recommended for complex payloads\n" .
                         "  client    client_uid — required only when several nodes share this key\n" .
                         "  wait      0-25 seconds the page keeps collecting the result (default 15).\n" .
-                        "            Chat agents with short page timeouts: use wait=0 to get the\n" .
-                        "            ticket instantly, then open the printed RESULT URL (&wait=20).\n" .
+                        "            RECOMMENDED: wait=20 — the finished result usually appears on\n" .
+                        "            this first page already (one URL per job). Use wait=0 only for\n" .
+                        "            long jobs: instant ticket + RESULT URL to re-open.\n" .
                         "  format    text (default) | json\n\n" .
+                        "NOTE: HTML-escaped URLs are understood — if a URL you built contains\n" .
+                        "&amp; instead of & (models often emit it), open it as-is; the server\n" .
+                        "reads both forms.\n\n" .
                         "Full API reference: " . $repo . "/blob/main/docs/AGENT-API.md\n";
         }
 
@@ -1209,6 +1218,11 @@ class ACLP_REST {
                         $lines[] = 'AGENT (you, reading this page): the job is still ' . $row->status . ' — OPEN the';
                         $lines[] = 'RESULT URL above AGAIN with your web-browsing tool every 5-10 seconds';
                         $lines[] = '(up to ~2 min) and read the new page — the result appears on that page.';
+                        // v2.7.0 (توسعه اصل ۵): یادآوری در نقطه درد — سابمیت با wait=20 نتیجه را
+                        // در همان صفحه اول می‌آورد (یک URL برای هر کار، بدون راند تیکت).
+                        $lines[] = 'TIP: for your NEXT submit, use &wait=20 — the finished result then';
+                        $lines[] = 'usually appears on the FIRST page already (one URL per job, no ticket';
+                        $lines[] = 'round). wait=0 is only for jobs that can outlive ~20 seconds.';
                 }
 
                 self::url_gate_text( implode( "\n", $lines ) . "\n" );
@@ -1227,6 +1241,10 @@ class ACLP_REST {
          * @return WP_REST_Response|WP_Error|null
          */
         public static function route_url_run( $request ) {
+                // v2.7.0 (توسعه اصل ۵): جبران URLهای HTML-escape شده (&amp; در پیام مدل) —
+                // مدل‌ها بارها «&» را «&amp;» تحویل می‌دهند و fetcher اپ هم همان را
+                // درخواست می‌کند؛ بدون این نگاشت cmd/type/wait گم می‌شد.
+                ACLP_Utils::fix_amp_params( $request );
                 $format = ( 'json' === strtolower( trim( (string) $request->get_param( 'format' ) ) ) ) ? 'json' : 'text';
 
                 $cmd          = trim( (string) $request->get_param( 'cmd' ) );
@@ -1369,6 +1387,8 @@ class ACLP_REST {
          * @return WP_REST_Response|WP_Error|null
          */
         public static function route_url_result( $request ) {
+                // v2.7.0 (توسعه اصل ۵): جبران URLهای HTML-escape شده (&amp; در پیام مدل).
+                ACLP_Utils::fix_amp_params( $request );
                 $format = ( 'json' === strtolower( trim( (string) $request->get_param( 'format' ) ) ) ) ? 'json' : 'text';
 
                 $ticket = trim( (string) $request->get_param( 'ticket' ) );

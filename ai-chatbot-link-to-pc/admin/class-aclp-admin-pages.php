@@ -129,17 +129,20 @@ class ACLP_Admin_Pages {
                 $starter_id   = 'aclp-starter-text';
                 $starter_tpl  = 'aclp-starter-template';
                 $starter_base = untrailingslashit( home_url() ) . '/wp-json/aclp/v1/agent-prompt';
+                // v2.7.0 — پیام شروع حلقه‌محور: قرارداد «یک URL برای هر کار» + ممنوعیت
+                // سوال کلید + پاسخ کوتاه. (درس گفتگوی سوم DeepSeek: پیام بلندِ فقط-راهنما
+                // باعث شد مدل کلید بپرسد و دو پیام «ابزار مرور ندارم» بفرستد.)
                 $starters     = array(
-                        'full' => "You have a working web-browsing tool — use it now. Open this URL and read the page:\n"
+                        'full' => "ACLP Bridge (control channel to my PC). Open this URL now with your web-browsing tool and read the page — that page is your integration guide:\n"
                                 . $starter_base . "?method=full&format=text&key=PASTE_YOUR_REAL_API_KEY_HERE\n"
-                                . "That page is the integration guide for the ACLP Bridge (a service connected to my PC). Follow the guide's steps, run the jobs I ask for, and report the actual page contents to me.",
-                        'a'    => "You can make HTTP requests (POST/GET with headers). Open this URL and read the page:\n"
+                                . "The key is already inside every URL in that guide. The working loop after reading it: I name a job, you perform it per the guide and report the real result — reply with one short line plus the one request, never ask me to confirm the key, never narrate your tool limitations, no install rounds around built-in jobs. After reading the guide, reply just: Ready.",
+                        'a'    => "ACLP Bridge (control channel to my PC). Open this URL now and read the page — that page is your integration guide (REST with Authorization header):\n"
                                 . $starter_base . "?method=a&format=text&key=PASTE_YOUR_REAL_API_KEY_HERE\n"
-                                . "That page is the integration guide for the ACLP Bridge (a service connected to my PC). Follow the guide's steps (REST with Authorization header), run the jobs I ask for, and report the actual API responses to me.",
+                                . "The key is already inside every example in that guide. The working loop: I name a job, you send the REST request per the guide and report the real response — one short line plus the one request, never ask me to confirm the key. After reading the guide, reply just: Ready.",
                         'b'    => "Method B is for text-only models: there is no starter URL here. Copy the short MODE B text above and send it as a normal chat message; then run the terminal commands the model prints, one at a time, and paste the JSON outputs back to it.",
-                        'c'    => "Open this URL with your web-browsing tool and read the page:\n"
+                        'c'    => "ACLP Bridge (control channel to my PC). Open this URL with your web-browsing tool and read the page — that page is your integration guide (in this API opening a URL IS the request and the returned page IS the response):\n"
                                 . $starter_base . "?method=c&format=text&key=PASTE_YOUR_REAL_API_KEY_HERE\n"
-                                . "That page is the integration guide for the ACLP Bridge (a service connected to my PC; in this API opening a URL IS the request and the returned page IS the response). Follow the guide's steps, run the jobs I ask for, and report the actual page contents to me.",
+                                . "The key is already inside every URL in that guide. The working loop: I name a job, you reply with ONE short line plus the ONE submit URL for it (wait=20), I send that URL back to you, its page text arrives here, and you report the real result. Never ask me for the key, never narrate tool limitations, no install rounds around built-in jobs. After reading the guide, reply just: Ready.",
                 );
                 foreach ( $starters as $m_key => $m_text ) {
                         echo '<script type="text/template" id="' . esc_attr( $starter_tpl . '-' . $m_key ) . '">' . esc_html( $m_text ) . '</script>';

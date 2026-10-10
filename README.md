@@ -2,7 +2,7 @@
 
 > پل ارتباطی بین چت‌بات‌های هوش مصنوعی و سیستم‌عامل کاربر (ویندوز / لینوکس) — افزونه وردپرس + ایجنت پایتون
 
-[![Version](https://img.shields.io/badge/version-2.6.0-blue.svg)](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases)
+[![Version](https://img.shields.io/badge/version-2.7.0-blue.svg)](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases)
 [![License](https://img.shields.io/badge/license-GPL--2.0-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey.svg)]()
 
@@ -27,9 +27,11 @@
 > **از v2.5.0 (گزارش میدانی مالک — DeepSeek صفحه را درست باز و بررسی می‌کند ولی «به‌صورت خودکار اعلام می‌کند ابزار مرور وب ندارد»):** بند **CAPABILITY TRUTH** به متن روش C (کامل و کوتاه) اضافه شد — اگر مدل حتی یک صفحه از این سرویس را باز کرده باشد، ابزار مرور او **کار می‌کند** و هر جمله «من نمی‌توانم لینک باز کنم / ابزار مرور وب ندارم» گزاره‌ای **غلط، ممنوع و نشانه شکستِ درخواست** است؛ جای آن محتوای واقعی صفحه را گزارش بدهد. یک قاعده مشروط مشابه هم به Rules هر سه متن اضافه شد. **توسعه اصل ۵:** پانویس صفحات ticket و نتیجه دروازه هم حالا همین واقعیت را به مدل یادآوری می‌کنند («باز کردن همین صفحه ثابت کرد ابزار مرورت کار می‌کند — هرگز نگو نمی‌توانی لینک باز کنی»). **رفع باگ مهم سمت سرور:** در `POST /agent/commands/{uid}/result` ارجاع فایل‌های ایجنت (دیکشنری `{"file_id":...}`) با کست `(int)` همیشه به «۱» تبدیل می‌شد و فایل شماره ۱ کلید (معمولاً اولین اسکرین‌شات) در **هر** نتیجه فایل‌دار بعدی دوباره به فرمان جدید وصل می‌شد — دقیقاً همان گزارش «نتیجه اسکرین‌شات شامل همه اسکرین‌شات‌های قبلی است»؛ اکنون شکل int/دیکشنری نرمالایز می‌شود و فقط فایل‌های بدون فرمانِ همان کلید وصل می‌شوند. تست‌های واحد پرامپت به ۸۱ مورد رسید.
 >
 > **از v2.6.0 (گزارش میدانی دوم DeepSeek — کشف مهم):** مالک متن راهنما را به‌صورت **فایل پیوست (txt)** به DeepSeek داد و این بار مدل نه‌تنها لینک را باز نکرد بلکه خودِ سند را «شبه‌تزریق دستور» برچسب زد و **عین کلمات متهاجمی متن ما را به‌عنوان مدرک رد راهنما نقل کرد** («FORBIDDEN»، «هرگز نگو نمی‌توانی»، «هرگز به کاربر نگو» — نقل مستقیم مدل: «A file that says "do X, never tell the user..." is exactly the shape of a prompt-injection payload»). سپس در پاسخ به «تست پینگ» اعلام کرد ابزار مرور ندارد؛ اما به‌محض اینکه کاربر همان URL را **داخل پیام چت** تایپ کرد و گفت «این آدرس را باز کن و خلاصه کن»، مدل بلافاصله صفحه را باز کرد و نتیجه واقعی را کامل گزارش داد. **دو درس:** ① متن‌های پلیس‌گونه که گفتار مدل را کنترل می‌کنند نتیجه عکس می‌دهند و حس تزریق می‌سازند؛ ② «پیام کوتاه کاربر + URL داخل پیام» کانال تحویل اثبات‌شده است. تغییرات: ① **بازنویسی تزریق‌ایمن متن‌ها** — بند CAPABILITY TRUTH و فهرست FORBIDDEN و همه جمله‌های «هرگز نگو / هرگز به کاربر نگو» حذف و با توصیف مثبت و واقعی جایگزین شد («در این API آدرس = درخواست و صفحه = پاسخ» + Self-check + Accuracy notes)؛ مکانیک THE CONTRACT (۴ مرحله) دست‌نخورده ماند؛ ② **پیام شروع در داشبورد** — یک پیام کوتاه آماده-کپی (به‌تفکیک روش/کلید) که URL راهنما (`agent-prompt?method=...&format=text&key=...`) را در خود دارد؛ مدل خودش راهنما را مستقیماً از URL می‌خواند (توسعه اصل ۵ — خودِ توزیع راهنما هم URL‌محور شد) + پذیرش نام‌های یکسان `key`/`api_key` در `/agent-prompt`؛ ③ **هشدار تحویل در داشبورد** — «متن را به‌صورت پیام چت بفرستید، نه فایل پیوست»؛ ④ پانویس صفحات دروازه هم به لحن مثبت تغییر کرد. تست‌های واحد پرامپت به **۹۳ مورد** رسید (۲۵ تست تزریق‌ایمن جدید).
+> **از v2.7.0 (گزارش میدانی سوم DeepSeek — «هنوز خیلی راه داره تا اتوماتیک بشه»):** با مقایسه HTML خام صفحه share، ریشه انفجار پیام‌ها پیدا شد: **پیام شروع به‌صورت HTML-escape شده به مدل رسیده بود** (`&amp;` به‌جای `&` — مدل‌ها بارها URL را این‌طور تحویل می‌دهند)؛ fetcher اپ هم آدرس را همین‌طور درخواست کرد، پارامترها «amp;key» و «amp;format» شدند و مدل به‌جای صفحه متنی، **JSON نسخه بدون‌کلید راهنما** را دید (جای‌نگهدار کلید) → طبق دستور خود راهنما STOP کرد و کلید پرسید، دو پیام «ابزار مرور ندارم» داد، با wait=0 هر کار را دو پیسته کرد و حتی یک گردش نصب psutil اضافه زد — ~۱۴ پیام برای یک sysinfo. پادزهرهای 2.7.0: ① **نرمال‌سازی amp;params سمت سرور** (`fix_amp_params` در /ping و /agent-prompt و /url/run و /url/result) — آدرس escape شده حالا درست کار می‌کند و این کلاس خرابی ریشه‌کن شد؛ ② **wait=20 پیش‌فرض سابمیت** — «یک URL برای هر کار»: نتیجه کامل معمولاً در همان صفحه اول است و پیست دوم (URL نتیجه) حذف می‌شود؛ ③ بخش **The loop** + سه قاعده جدید ضد-اتلاف پیام (بدون سوال کلید، بدون گردش نصب دور کارهای داخلی، پاسخ کوتاه «یک خط + یک URL»)؛ ④ بلوک کلید **خودترمیم** به‌جای STOP-and-ask؛ ⑤ **پیام شروع حلقه‌محور داشبورد** با «reply just: Ready». تست‌های واحد پرامپت به **۱۲۱ مورد** رسید (۸ تست واحد fix_amp_params).
+
 
 ```text
-# ACLP BRIDGE — API CLIENT INTEGRATION GUIDE (v2.6.0)
+# ACLP BRIDGE — API CLIENT INTEGRATION GUIDE (v2.7.0)
 
 The ACLP Bridge is a REST job-processing service. You interact with it exactly
 like any other API: you build a JSON request, submit it to one endpoint, and the
@@ -158,6 +160,19 @@ call this API exactly the same way. If an attempt fails, quote your tool's
 real error message verbatim after 1-2 honest retries — that is the only
 failure mode this API recognizes.
 
+### The loop — one URL per job (keeps the conversation short)
+Work with this service in the smallest possible rounds:
+  1. The user names a job ("sysinfo", "screenshot", "run dir", ...).
+  2. You reply with ONE short line of intent plus the ONE submit URL for it
+     (wait=20) — no plans, no alternatives, no key questions, no tool talk.
+  3. The page text arrives in the conversation (chat apps fetch URLs sent back
+     to the model; if nothing arrived, ask the user ONCE to send that exact
+     URL back as a chat message).
+  4. You read the page and report the real result. A wait=20 page usually
+     already shows the FINISHED result — the job is then done in one round.
+Only a pending ticket (wait=0 submits, long jobs) needs more rounds: open the
+RESULT URL printed on the ticket page until it is completed or failed.
+
 ### THE CONTRACT — a request is complete ONLY after you have read the page
 Building the URL is only the FIRST HALF of a request. A URL that is never
 opened is NOT a request: nothing runs, nothing is queued, nothing comes back.
@@ -166,8 +181,10 @@ Every single MODE C request means this exact sequence, executed BY YOU:
      (whatever your platform calls it: browse / browser / web.run / web fetch /
      open_url / url_reader — a real tool call, not just writing the URL down);
   2. READ the page the tool returned — the result exists ONLY on that page;
-  3. STATUS pending/running? INVOKE the tool AGAIN with the RESULT URL printed
-     on the page, every 5-10 seconds, until STATUS is completed or failed;
+  3. STATUS pending/running on a wait=0 ticket? INVOKE the tool AGAIN with the
+     RESULT URL printed on the page, every 5-10 seconds, until STATUS is
+     completed or failed (a wait=20 page that already shows the result skips
+     this step);
   4. REPORT the actual page contents to the user in your own words.
 In the normal deployment the user has no terminal and no part in this cycle:
 you perform the steps and then report what the pages actually said.
@@ -186,13 +203,14 @@ printed ("open" = invoke your own browsing tool, as required by THE CONTRACT).
        https://YOUR-SITE.com/wp-json/aclp/v1/ping?key={KEY}&format=text
 
 1) Submit the job BY OPENING this URL with your browsing tool (a real tool
-   call). Chat browsing tools often have SHORT page timeouts (5-15s), so submit
-   with wait=0 — the page answers INSTANTLY with the job ticket:
-       https://YOUR-SITE.com/wp-json/aclp/v1/url/run?key={KEY}&cmd=<command>&wait=0
+   call). DEFAULT is wait=20 — the page waits up to ~20s and usually already
+   contains the FINISHED result (one URL, one step, report at once):
+       https://YOUR-SITE.com/wp-json/aclp/v1/url/run?key={KEY}&cmd=<command>&wait=20
+   Use wait=0 only for jobs that can outlive ~20 seconds (big installs, big
+   file transfers): the page then answers instantly with a job ticket that
+   prints a RESULT URL (step 2).
    - "cmd" = ONE SIMPLE shell command, URL-encoded (spaces become %20). Example:
-       .../url/run?key={KEY}&cmd=echo%20hello&wait=0
-   - If your tool tolerates longer page loads (~25s), you may use wait=20 and the
-     finished result usually appears directly in the same page view.
+       .../url/run?key={KEY}&cmd=echo%20hello&wait=20
    - COMPLEX command text (quotes, &, |, >, <, $, newlines, non-ASCII) MUST be
      Base64-encoded first and passed as "cmd64" — raw complex text placed in a
      URL breaks the address. Recipe:
@@ -201,15 +219,18 @@ printed ("open" = invoke your own browsing tool, as required by THE CONTRACT).
           (the server also accepts standard Base64, but the URL-safe form is
           the safest to paste into an address);
        c) append &cmd64=<that string>, e.g.
-       .../url/run?key={KEY}&cmd64=ZWNobyAiaGVsbG8iICYmIGxz&wait=0
+       .../url/run?key={KEY}&cmd64=ZWNobyAiaGVsbG8iICYmIGxz&wait=20
        (decodes to: echo "hello" && ls)
      The alias &b64= is accepted as well.
    - Non-shell job: drop "cmd"/"cmd64" and pass "type" instead, e.g.
-       .../url/run?key={KEY}&type=sysinfo&wait=0
-   - "wait" = seconds the page keeps collecting the result (0-25, default 15).
-2) Read the result: OPEN the RESULT URL printed on the ticket page — again
-   with YOUR browsing tool (it contains your ticket and &wait=20, so the page
-   itself waits up to 20 seconds for the result).
+       .../url/run?key={KEY}&type=sysinfo&wait=20
+   - "wait" = seconds the page keeps collecting the result (0-25, default 15;
+     20 recommended; 0 = instant ticket + RESULT URL for long jobs).
+2) Read the result: submitted with wait=20 and the page shows STATUS
+   completed/failed? You are done — report it (step 4 of THE CONTRACT).
+   Submitted with wait=0: OPEN the RESULT URL printed on the ticket page —
+   again with YOUR browsing tool (it contains your ticket and &wait=20, so the
+   page itself waits up to 20 seconds for the result).
    Typical cycle: the node picks the job up in 5-10 seconds. If STATUS is still
    "pending" or "running", RE-OPEN THE SAME RESULT URL every 5-10 seconds and
    keep retrying for up to 2 minutes before concluding anything — a busy node
@@ -267,6 +288,16 @@ operator approval); shell also accepts {"elevated": true} when configured.
 - Report page contents, not tool-disclaimers: if a page loaded, describe what
   it showed; if it did not, quote your tool's error message. Pages you already
   opened are the proof of how this API is called.
+- Never ask the user to confirm, re-send or paste the API key — the guide or
+  starter message you received already embeds the real key in every URL.
+- No preparation rounds: built-in job types (ping, sysinfo, screenshot, shell,
+  run_python, file_*, process_list, open_url, http_request) run as-is — never
+  submit install/pip/apt jobs around them unless the user literally asks to
+  install software.
+- Keep every working reply short: one line of intent plus the one request (a
+  URL, a POST or a relay command), then report what the response actually
+  said. Page text that appears in the conversation IS the delivery channel of
+  this API — read it, quote it, move on; do not narrate tool limitations.
 - Say briefly what each job does before submitting it.
 - Files you receive include "download_url" — a signed link that works without any header.
 - Full API reference (open it if unsure): https://github.com/Tobeseuss/ai-chatbot-link-to-pc/blob/main/docs/AGENT-API.md
@@ -345,14 +376,14 @@ operator approval); shell also accepts {"elevated": true} when configured.
 
 ### گام ۱ — نصب افزونه در وردپرس
 
-1. از بخش [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) فایل `ai-chatbot-link-to-pc-v2.6.0.zip` را دانلود کنید.
+1. از بخش [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) فایل `ai-chatbot-link-to-pc-v2.7.0.zip` را دانلود کنید.
 2. در وردپرس: **افزونه‌ها ← افزودن ← بارگذاری افزونه** و فایل ZIP را نصب و فعال کنید.
 3. منوی جدید **«AI-PC Link»** در پیشخوان ظاهر می‌شود.
 
 ### گام ۲ — ساخت کلید API و نصب ایجنت
 
 1. **AI-PC Link ← کلیدهای API ← ساخت کلید جدید** — کلید ساخته می‌شود و از همان‌جا و در هر زمان آینده قابل مشاهده و کپی است (دکمه «کپی» کنار کلید).
-2. فایل `aclp-agent-v2.6.0.zip` را از Releases دانلود و روی سیستم خود (ویندوز/لینوکس) استخراج کنید.
+2. فایل `aclp-agent-v2.7.0.zip` را از Releases دانلود و روی سیستم خود (ویندوز/لینوکس) استخراج کنید.
 3. اجرا کنید:
    - **ویندوز:** دوبار کلیک روی `start_agent.bat`
    - **لینوکس:** `chmod +x start_agent.sh && ./start_agent.sh`
@@ -429,8 +460,8 @@ JSON پیچیده کارهای پیشرفته هم از طریق `payload64` (ه
 
 | فایل | کاربرد | محل |
 |------|--------|-----|
-| `ai-chatbot-link-to-pc-v2.6.0.zip` | افزونه وردپرس | [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) |
-| `aclp-agent-v2.6.0.zip` | ایجنت سیستم (پایتون — بدون هیچ وابستگی) | [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) |
+| `ai-chatbot-link-to-pc-v2.7.0.zip` | افزونه وردپرس | [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) |
+| `aclp-agent-v2.7.0.zip` | ایجنت سیستم (پایتون — بدون هیچ وابستگی) | [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) |
 
 پیش‌نیازها: وردپرس 5.8+ با PHP 7.4+ · پایتون 3.8+ روی سیستم کاربر
 
@@ -482,6 +513,8 @@ JSON پیچیده کارهای پیشرفته هم از طریق `payload64` (ه
 | هوش مصنوعی URL را می‌سازد ولی باز نمی‌کند / لینک را به کاربر پس می‌دهد | متن روش C نسخه **2.4.0+** را به مدل بدهید (داشبورد ← روش C) — قرارداد اجباری «فراخوانی ابزار مرور ← خواندن صفحه ← تکرار RESULT URL ← گزارش به کاربر» دارد؛ صفحات دروازه هم خودشان به مدل یادآوری می‌دهند. **بهترین راه از 2.6.0: «پیام شروع» داشبورد را بفرستید** تا مدل راهنما را خودش از URL بخواند. اگر مدل واقعاً ابزار مرور وب ندارد، از روش B (رله) استفاده کنید |
 | هوش مصنوعی صفحه را درست باز و بررسی می‌کند ولی می‌گوید «ابزار مرور وب ندارم» | از متن روش C نسخه **2.6.0+** استفاده کنید — بازنویسی تزریق‌ایمن (Self-check + توصیف مثبت «آدرس = درخواست، صفحه = پاسخ») به‌جای جمله‌های تحکیمی که خودشان حس تزریق می‌ساختند؛ پانویس صفحات ticket/نتیجه هم لحن مثبت دارد؛ اگر باز ادامه داد، مدل مذکور را کنار بگذارید یا از روش B استفاده کنید |
 | متن راهنما را به‌صورت **فایل پیوست (txt)** به مدل دادم و مدل آن را رد کرد / «prompt-injection» خواند | این رفتار طبیعی مدل‌های جدید است (تجربه میدانی DeepSeek) — فایل پیوست داده غیرقابل‌اعتماد محسوب می‌شود. متن را **به‌صورت پیام متنی داخل چت** پیست کنید، یا فقط **«پیام شروع» داشبورد** را بفرستید تا مدل راهنما را خودش مستقیماً از URL بخواند (از **2.6.0**) |
+| هوش مصنوعی برای یک کار ساده چند پیام تبادل می‌کند (کلید می‌پرسد / plan می‌نویسد / نصب اضافه می‌کند) | افزونه **2.7.0+** را نصب کنید و **«پیام شروع» جدید داشبورد** (روش C + کلید) را در یک گفتگوی کاملاً تازه بفرستید — قرارداد «یک URL برای هر کار» (wait=20) + ممنوعیت سوال کلید + پاسخ کوتاه داخل خود پیام شروع است؛ بین هر کار هم فقط نام کار را بنویسید (مثلاً «sysinfo»)، نه URL |
+| URLی که مدل ساخته `&amp;` دارد (به‌جای `&`) | از 2.7.0 نیازی به اصلاح دستی نیست — سرور هر دو شکل را می‌فهمد (`fix_amp_params` در ۴ مسیر دروازه)؛ همان را همان‌طور که هست پیست کنید |
 | نتیجه دستور اسکرین‌شات (یا هر کار فایل‌دار) فایل‌های قبلی را هم نشان می‌دهد | باگ سمت سرور بود — در نسخه **2.5.0** رفع شد؛ ZIP افزونه 2.5.0 را نصب کنید (ایجنت نیازی به تغییر ندارد) |
 | خطای حجم فایل | مقدار `post_max_size` و `upload_max_filesize` PHP سرور را افزایش دهید |
 | آپلود بزرگ شکست می‌خورد | در تنظیمات پلاگین سقف حجم را کم کنید یا محدودیت PHP را بالا ببرید |

@@ -315,3 +315,22 @@ Stage Summary:
 - نسخه‌ها → 2.6.0 در ۴ نقطه (ایجنت فقط شماره)
 - مستندات: CHANGELOG / AGENT-API (یادداشت v2.6.0 + منسوخ‌شدن CAPABILITY TRUTH + 3.2) / README (پاراگراف + عیب‌یابی ×۳ + ZIPها + نقشه راه v2.7-v2.9) / readme.txt / USER-GUIDE بخش ۱۵ / project.md (توسعه اصل ۵ + وضعیت + ADR 29) / brainstorm گفتگو #۱۳ / دو worklog
 - درس این جلسه (تکرار): MultiEdit این محیط اتمیک نیست — در شکست، ادیت‌های قبلی اعمال می‌مانند (باز هم رخ داد؛ با grep تأیید و با python patch تکمیل شد)
+
+---
+
+## جلسه ۱۴ (v2.7.0) — گزارش میدانی سوم DeepSeek (share/98xu36ablggvj17v25)
+
+- بازبینی کامل گفتگو با agent-browser؛ کشف ریشه با مقایسه HTML خام صفحه share: پیام شروع با «&amp;» خام به مدل رسیده (double-escape در share؛ URLهای تایپی کاربر single-escape) → fetcher اپ «amp;key»/«amp;format» فرستاد → مدل JSON نسخه بدون‌کلید راهنما را دید → طبق «STOP and ask» خود راهنما کلید پرسید + دو پیام «ابزار مرور ندارم» + گردش دو-پیسته wait=0 + گردش psutil = ~۱۴ پیام برای یک sysinfo
+- fix_amp_params (ACLP_Utils): نگاشت amp;params به نام تمیز در route_ping/route_agent_prompt/route_url_run/route_url_result — تا ۳ لایه، اولویت نام سالم، فقط وقتی تمیز غایب است
+- راهنما (کامل + کوتاه C): wait=20 پیش‌فرض سابمیت (one URL per job)؛ Step 2 مشروط؛ مرحله ۳ قرارداد مشروط («on a wait=0 ticket?»)؛ بخش «The loop — one URL per job»؛ سه قاعده Rules جدید (بدون سوال کلید / No preparation rounds / پاسخ کوتاه + page text = delivery channel)؛ بلوک کلید خودترمیم به‌جای STOP-and-ask (انتهای بلوک «Never guess or invent credentials.» حفظ شد تا PH_BLOCK_RE داشبورد بی‌تغییر بماند)
+- داشبورد: پیام شروع full/a/c حلقه‌محور («reply just: Ready» + ممنوعیت سوال کلید + wait=20)؛ دکمه کپی pre از قبل سالم بود (textContent) — نیازی به تعمیر نبود
+- دروازه: فوتر ticket نکته wait=20؛ usage صفحه (RECOMMENDED wait=20 + یادداشت entity)؛ رشته usage JSON
+- درس تکرارشده: MultiEdit این محیط اتمیک نیست (ادیت‌های ۱-۴ از فراخوانی شکست‌خورده مانده بودند) — با grep وضعیت گرفت و بقیه با Edit تکی کامل شد
+- تست‌ها: test_prompt_modes.php → 121/121 (۱۶ جدید: The loop / wait=20 / مشروط‌شدن قرارداد / قواعد / self-heal / ۸ تست واحد amp با Fake_Request)؛ b64 20/20؛ php -l (utils/rest/admin-pages/مین) ×۴؛ py_compile ایجنت؛ node --check؛ بلوک README بازتولید (17269)
+- نسخه‌ها → 2.7.0 در ۴ نقطه؛ docs: CHANGELOG/AGENT-API (3.2 + 3.10)/README (blockquote + ۲ ردیف عیب‌یابی + ZIPها)/readme.txt/USER-GUIDE بخش ۱۵/project.md (ADR 30 + وضعیت)/brainstorm #۱۴ + دو worklog
+- build_release دو ZIP 2.7.0 → commit + push → Release v2.7.0 → کپی به download/
+
+Stage Summary:
+- Release v2.7.0: https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases/tag/v2.7.0
+- گام مالک: ① نصب ZIP افزونه 2.7.0 روی سایت ② گفتگوی کاملاً تازه + فقط «پیام شروع» جدید داشبورد (روش C + کلید) ③ بعد از Ready فقط نام کار را بنویسید («sysinfo») — مدل باید فقط یک URL بدهد (wait=20)؛ همان را پیست کنید؛ نتیجه کامل در همان صفحه است. URLهایی که مدل با &amp; بدهد هم حالا سمت سرور درست خوانده می‌شوند
+- قاعده اصل ۵ ادامه دارد

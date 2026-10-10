@@ -180,6 +180,53 @@ class ACLP_Utils {
          * از URL بخوان — توسعه اصل ۵) را در خود دارد + هشدار «به‌صورت پیام چت بفرست،
          * نه فایل پیوست».
          *
+         * از v2.7.0 (گزارش میدانی سوم DeepSeek — share/98xu36ablggvj17v25، «هنوز خیلی
+         * راه داره تا اتوماتیک بشه»): ریشه اصلی با مقایسه HTML خام صفحه share پیدا شد —
+         * پیام شروعِ رسیده به مدل «&amp;» خام داشت (escape شده)؛ fetcher اپ هم URL را
+         * همین‌طور درخواست کرد، پارامترها «amp;key» و «amp;format» شدند → مدل JSON نسخه
+         * بدون‌کلید راهنما را دید (جای‌نگهدار PASTE_YOUR_REAL_API_KEY_HERE) → طبق
+         * دستور خود راهنما STOP کرد و کلید پرسید؛ بعدش هم دو پیام بلند «ابزار مرور
+         * ندارم / Option A-B» + گردش دو-مرحله‌ای wait=0 (تیکت + URL نتیجه) + گردش
+         * اضافه نصب psutil = ~۱۴ پیام برای یک sysinfo. پادزهرها: ① نرمال‌سازی
+         * amp;params سمت سرور (fix_amp_params — آدرس escape شده هم درست کار می‌کند)
+         * ② wait=20 پیش‌فرض سابمیت (نتیجه کامل در همان صفحه اول = یک URL برای هر کار)
+         * ③ بخش «The loop» + قواعد ضد-اتلاف پیام (بدون سوال کلید، بدون گردش نصب،
+         * پاسخ کوتاه) ④ بلوک کلید خودترمیم به‌جای STOP-and-ask.
+         *
+         * @param string $site_url آدرس سایت (خالی = سایت فعلی) — همیشه خودکار جای‌گذاری می‌شود.
+         * @param string $api_key  کلید API (خالی = جای‌نگهدار تا ایجنت از کاربر بپرسد).
+         * @param string $method   full (پیش‌فرض) | a | b | c — متن کوتاه یک روش.
+         * @return string
+         */
+        public static function fix_amp_params( $request ) {
+                if ( ! is_object( $request ) || ! method_exists( $request, 'get_query_params' ) ) {
+                        return;
+                }
+                $qp = $request->get_query_params();
+                if ( ! is_array( $qp ) ) {
+                        return;
+                }
+                foreach ( $qp as $raw_name => $value ) {
+                        if ( ! is_string( $raw_name ) || 0 !== strpos( $raw_name, 'amp;' ) ) {
+                                continue;
+                        }
+                        $clean = $raw_name;
+                        for ( $i = 0; 0 === strpos( $clean, 'amp;' ) && $i < 3; $i++ ) {
+                                $clean = substr( $clean, 4 );
+                        }
+                        if ( '' === $clean ) {
+                                continue;
+                        }
+                        if ( null === $request->get_param( $clean ) ) {
+                                $request->set_param( $clean, $value );
+                        }
+                }
+        }
+
+        /**
+         * متن کامل راهنمای استفاده از API برای ایجنت‌های هوش مصنوعی (اصل ۴).
+         * (تاریخچه کامل در داک‌بلاک بالای همین کلاس — از v1.4.0 تا v2.7.0.)
+         *
          * @param string $site_url آدرس سایت (خالی = سایت فعلی) — همیشه خودکار جای‌گذاری می‌شود.
          * @param string $api_key  کلید API (خالی = جای‌نگهدار تا ایجنت از کاربر بپرسد).
          * @param string $method   full (پیش‌فرض) | a | b | c — متن کوتاه یک روش.
@@ -198,9 +245,12 @@ class ACLP_Utils {
                 $key_line   = $api_key
                         ? '- API key:  ' . $api_key . '   (already provided — send it as "Authorization: Bearer <key>")'
                         : "- API key:  {$api_key_ph}\n"
-                          . "- If the API key above is a placeholder (empty/invalid), STOP and ask the user to copy a real key\n"
-                          . "  from WordPress admin -> AI-PC Link -> API Keys (the full key is visible there and can be copied).\n"
-                          . "  Never guess or invent credentials.";
+                          . "- If the key above is still the placeholder, this page was fetched without its\n"
+                          . "  query string — commonly because the URL got HTML-escaped (&amp; instead of &;\n"
+                          . "  the server accepts both forms). Self-heal: take the key from ANY other ACLP URL\n"
+                          . "  in this conversation and substitute it for the placeholder in the URLs below.\n"
+                          . "  If you have no ACLP URL at all, ask the user ONCE for the key or to resend the\n"
+                          . "  starter message. Never guess or invent credentials.";
                 $prompt     = <<<PROMPT
 # ACLP BRIDGE — API CLIENT INTEGRATION GUIDE (v{VERSION})
 
@@ -328,6 +378,19 @@ call this API exactly the same way. If an attempt fails, quote your tool's
 real error message verbatim after 1-2 honest retries — that is the only
 failure mode this API recognizes.
 
+### The loop — one URL per job (keeps the conversation short)
+Work with this service in the smallest possible rounds:
+  1. The user names a job ("sysinfo", "screenshot", "run dir", ...).
+  2. You reply with ONE short line of intent plus the ONE submit URL for it
+     (wait=20) — no plans, no alternatives, no key questions, no tool talk.
+  3. The page text arrives in the conversation (chat apps fetch URLs sent back
+     to the model; if nothing arrived, ask the user ONCE to send that exact
+     URL back as a chat message).
+  4. You read the page and report the real result. A wait=20 page usually
+     already shows the FINISHED result — the job is then done in one round.
+Only a pending ticket (wait=0 submits, long jobs) needs more rounds: open the
+RESULT URL printed on the ticket page until it is completed or failed.
+
 ### THE CONTRACT — a request is complete ONLY after you have read the page
 Building the URL is only the FIRST HALF of a request. A URL that is never
 opened is NOT a request: nothing runs, nothing is queued, nothing comes back.
@@ -336,8 +399,10 @@ Every single MODE C request means this exact sequence, executed BY YOU:
      (whatever your platform calls it: browse / browser / web.run / web fetch /
      open_url / url_reader — a real tool call, not just writing the URL down);
   2. READ the page the tool returned — the result exists ONLY on that page;
-  3. STATUS pending/running? INVOKE the tool AGAIN with the RESULT URL printed
-     on the page, every 5-10 seconds, until STATUS is completed or failed;
+  3. STATUS pending/running on a wait=0 ticket? INVOKE the tool AGAIN with the
+     RESULT URL printed on the page, every 5-10 seconds, until STATUS is
+     completed or failed (a wait=20 page that already shows the result skips
+     this step);
   4. REPORT the actual page contents to the user in your own words.
 In the normal deployment the user has no terminal and no part in this cycle:
 you perform the steps and then report what the pages actually said.
@@ -356,13 +421,14 @@ printed ("open" = invoke your own browsing tool, as required by THE CONTRACT).
        {SITE_URL}/wp-json/aclp/v1/ping?key={KEY}&format=text
 
 1) Submit the job BY OPENING this URL with your browsing tool (a real tool
-   call). Chat browsing tools often have SHORT page timeouts (5-15s), so submit
-   with wait=0 — the page answers INSTANTLY with the job ticket:
-       {SITE_URL}/wp-json/aclp/v1/url/run?key={KEY}&cmd=<command>&wait=0
+   call). DEFAULT is wait=20 — the page waits up to ~20s and usually already
+   contains the FINISHED result (one URL, one step, report at once):
+       {SITE_URL}/wp-json/aclp/v1/url/run?key={KEY}&cmd=<command>&wait=20
+   Use wait=0 only for jobs that can outlive ~20 seconds (big installs, big
+   file transfers): the page then answers instantly with a job ticket that
+   prints a RESULT URL (step 2).
    - "cmd" = ONE SIMPLE shell command, URL-encoded (spaces become %20). Example:
-       .../url/run?key={KEY}&cmd=echo%20hello&wait=0
-   - If your tool tolerates longer page loads (~25s), you may use wait=20 and the
-     finished result usually appears directly in the same page view.
+       .../url/run?key={KEY}&cmd=echo%20hello&wait=20
    - COMPLEX command text (quotes, &, |, >, <, $, newlines, non-ASCII) MUST be
      Base64-encoded first and passed as "cmd64" — raw complex text placed in a
      URL breaks the address. Recipe:
@@ -371,15 +437,18 @@ printed ("open" = invoke your own browsing tool, as required by THE CONTRACT).
           (the server also accepts standard Base64, but the URL-safe form is
           the safest to paste into an address);
        c) append &cmd64=<that string>, e.g.
-       .../url/run?key={KEY}&cmd64=ZWNobyAiaGVsbG8iICYmIGxz&wait=0
+       .../url/run?key={KEY}&cmd64=ZWNobyAiaGVsbG8iICYmIGxz&wait=20
        (decodes to: echo "hello" && ls)
      The alias &b64= is accepted as well.
    - Non-shell job: drop "cmd"/"cmd64" and pass "type" instead, e.g.
-       .../url/run?key={KEY}&type=sysinfo&wait=0
-   - "wait" = seconds the page keeps collecting the result (0-25, default 15).
-2) Read the result: OPEN the RESULT URL printed on the ticket page — again
-   with YOUR browsing tool (it contains your ticket and &wait=20, so the page
-   itself waits up to 20 seconds for the result).
+       .../url/run?key={KEY}&type=sysinfo&wait=20
+   - "wait" = seconds the page keeps collecting the result (0-25, default 15;
+     20 recommended; 0 = instant ticket + RESULT URL for long jobs).
+2) Read the result: submitted with wait=20 and the page shows STATUS
+   completed/failed? You are done — report it (step 4 of THE CONTRACT).
+   Submitted with wait=0: OPEN the RESULT URL printed on the ticket page —
+   again with YOUR browsing tool (it contains your ticket and &wait=20, so the
+   page itself waits up to 20 seconds for the result).
    Typical cycle: the node picks the job up in 5-10 seconds. If STATUS is still
    "pending" or "running", RE-OPEN THE SAME RESULT URL every 5-10 seconds and
    keep retrying for up to 2 minutes before concluding anything — a busy node
@@ -437,6 +506,16 @@ operator approval); shell also accepts {"elevated": true} when configured.
 - Report page contents, not tool-disclaimers: if a page loaded, describe what
   it showed; if it did not, quote your tool's error message. Pages you already
   opened are the proof of how this API is called.
+- Never ask the user to confirm, re-send or paste the API key — the guide or
+  starter message you received already embeds the real key in every URL.
+- No preparation rounds: built-in job types (ping, sysinfo, screenshot, shell,
+  run_python, file_*, process_list, open_url, http_request) run as-is — never
+  submit install/pip/apt jobs around them unless the user literally asks to
+  install software.
+- Keep every working reply short: one line of intent plus the one request (a
+  URL, a POST or a relay command), then report what the response actually
+  said. Page text that appears in the conversation IS the delivery channel of
+  this API — read it, quote it, move on; do not narrate tool limitations.
 - Say briefly what each job does before submitting it.
 - Files you receive include "download_url" — a signed link that works without any header.
 - Full API reference (open it if unsure): {REPO_URL}/blob/main/docs/AGENT-API.md
@@ -448,7 +527,7 @@ PROMPT;
                 $prompt = str_replace(
                         array( '{VERSION}', '{SITE_URL}', '{KEY_LINE}', '{API_KEY_PH}', '{KEY}', '{REPO_URL}' ),
                         array(
-                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '2.6.0',
+                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '2.7.0',
                                 untrailingslashit( (string) $site_url ),
                                 $key_line,
                                 $api_key_ph,
@@ -486,9 +565,12 @@ PROMPT;
                 $key_line   = $api_key
                         ? '- API key:  ' . $api_key . '   (already provided — use it exactly as it appears in the URLs/headers below)'
                         : "- API key:  {$api_key_ph}\n"
-                          . "- If the API key above is a placeholder (empty/invalid), STOP and ask the user to copy a real key\n"
-                          . "  from WordPress admin -> AI-PC Link -> API Keys (the full key is visible there and can be copied).\n"
-                          . "  Never guess or invent credentials.";
+                          . "- If the key above is still the placeholder, this page was fetched without its\n"
+                          . "  query string — commonly because the URL got HTML-escaped (&amp; instead of &;\n"
+                          . "  the server accepts both forms). Self-heal: take the key from ANY other ACLP URL\n"
+                          . "  in this conversation and substitute it for the placeholder in the URLs below.\n"
+                          . "  If you have no ACLP URL at all, ask the user ONCE for the key or to resend the\n"
+                          . "  starter message. Never guess or invent credentials.";
 
                 $titles = array(
                         'a' => 'MODE A — submitting jobs over HTTP (you can make HTTP requests)',
@@ -535,6 +617,16 @@ JOBT;
 - Report page contents, not tool-disclaimers: if a page loaded, describe what
   it showed; if it did not, quote your tool's error message. Pages you already
   opened are the proof of how this API is called.
+- Never ask the user to confirm, re-send or paste the API key — the guide or
+  starter message you received already embeds the real key in every URL.
+- No preparation rounds: built-in job types (ping, sysinfo, screenshot, shell,
+  run_python, file_*, process_list, open_url, http_request) run as-is — never
+  submit install/pip/apt jobs around them unless the user literally asks to
+  install software.
+- Keep every working reply short: one line of intent plus the one request (a
+  URL, a POST or a relay command), then report what the response actually
+  said. Page text that appears in the conversation IS the delivery channel of
+  this API — read it, quote it, move on; do not narrate tool limitations.
 - Say briefly what each job does before submitting it.
 - Files you receive include "download_url" — a signed link that works without any header.
 - Full API reference (open it if unsure): {REPO_URL}/blob/main/docs/AGENT-API.md
@@ -631,8 +723,10 @@ MODEB;
 ## How you work with this service (important)
 - Every request URL below ALREADY CONTAINS the API key after "key=". Do not add,
   edit or ask about credentials — open the URLs exactly as printed.
-- If the key above is still a placeholder, ask the user for the real key once and
-  simply substitute it for the placeholder inside the URLs (plain text swap).
+- If the key above is still a placeholder, this page was fetched without its
+  query string (often the URL got HTML-escaped: &amp; instead of &). Self-heal:
+  take the key from ANY other ACLP URL in this conversation and substitute it
+  for the placeholder inside the URLs below.
 - Read the real page each URL returns and report what it shows.
 
 ## How a request works in this API (worth reading once)
@@ -645,6 +739,19 @@ call this API exactly the same way. If an attempt fails, quote your tool's
 real error message verbatim after 1-2 honest retries — that is the only
 failure mode this API recognizes.
 
+## The loop — one URL per job (keeps the conversation short)
+Work with this service in the smallest possible rounds:
+  1. The user names a job ("sysinfo", "screenshot", "run dir", ...).
+  2. You reply with ONE short line of intent plus the ONE submit URL for it
+     (wait=20) — no plans, no alternatives, no key questions, no tool talk.
+  3. The page text arrives in the conversation (chat apps fetch URLs sent back
+     to the model; if nothing arrived, ask the user ONCE to send that exact
+     URL back as a chat message).
+  4. You read the page and report the real result. A wait=20 page usually
+     already shows the FINISHED result — the job is then done in one round.
+Only a pending ticket (wait=0 submits, long jobs) needs more rounds: open the
+RESULT URL printed on the ticket page until it is completed or failed.
+
 ## THE CONTRACT — a request is complete ONLY after you have read the page
 Building the URL is only the FIRST HALF of a request. A URL that is never opened
 is NOT a request: nothing runs, nothing is queued, nothing comes back. Every
@@ -653,8 +760,10 @@ MODE C request means this exact sequence, executed BY YOU:
      (whatever your platform calls it: browse / browser / web.run / web fetch /
      open_url / url_reader — a real tool call, not just writing the URL down);
   2. READ the page the tool returned — the result exists ONLY on that page;
-  3. STATUS pending/running? INVOKE the tool AGAIN with the RESULT URL printed
-     on the page, every 5-10 seconds, until STATUS is completed or failed;
+  3. STATUS pending/running on a wait=0 ticket? INVOKE the tool AGAIN with the
+     RESULT URL printed on the page, every 5-10 seconds, until STATUS is
+     completed or failed (a wait=20 page that already shows the result skips
+     this step);
   4. REPORT the actual page contents to the user in your own words.
 The user has no terminal in this deployment: you perform the four steps and
 then report what the pages actually said.
@@ -668,14 +777,14 @@ Accuracy notes (what good output looks like):
 ## Step 0 — connection check (optional, plain-text page, no job created)
     {SITE_URL}/wp-json/aclp/v1/ping?key={KEY}&format=text
 
-## Step 1 — submit the job BY OPENING the URL with your tool (wait=0 = instant ticket)
-Chat browsing tools often have SHORT page timeouts (5-15s), so submit with
-wait=0 — the page answers INSTANTLY with the job ticket:
-    {SITE_URL}/wp-json/aclp/v1/url/run?key={KEY}&cmd=<command>&wait=0
+## Step 1 — submit the job BY OPENING the URL with your tool (DEFAULT wait=20)
+Submit with wait=20 — the page waits up to ~20s and usually already contains
+the FINISHED result (one URL, one step, report at once):
+    {SITE_URL}/wp-json/aclp/v1/url/run?key={KEY}&cmd=<command>&wait=20
+Use wait=0 only for jobs that can outlive ~20 seconds (big installs, big file
+transfers): the page then answers instantly with a job ticket + RESULT URL.
 - "cmd" = ONE SIMPLE shell command, URL-encoded (spaces become %20). Example:
-    .../url/run?key={KEY}&cmd=echo%20hello&wait=0
-- If your tool tolerates longer page loads (~25s), use wait=20 instead and the
-  finished result usually appears directly in the same page view.
+    .../url/run?key={KEY}&cmd=echo%20hello&wait=20
 - COMPLEX command text (quotes, &, |, >, <, \$, newlines, non-ASCII) MUST be
   Base64-encoded first and passed as "cmd64" — raw complex text placed in a
   URL breaks the address. Recipe:
@@ -684,17 +793,20 @@ wait=0 — the page answers INSTANTLY with the job ticket:
        (the server also accepts standard Base64, but the URL-safe form is the
        safest to paste into an address);
     c) append &cmd64=<that string>, e.g.
-    .../url/run?key={KEY}&cmd64=ZWNobyAiaGVsbG8iICYmIGxz&wait=0
+    .../url/run?key={KEY}&cmd64=ZWNobyAiaGVsbG8iICYmIGxz&wait=20
     (decodes to: echo "hello" && ls)
   The alias &b64= is accepted as well.
 - Non-shell job: drop "cmd"/"cmd64" and pass "type" instead, e.g.
-    .../url/run?key={KEY}&type=sysinfo&wait=0
-- "wait" = seconds the page keeps collecting the result (0-25, default 15).
+    .../url/run?key={KEY}&type=sysinfo&wait=20
+- "wait" = seconds the page keeps collecting the result (0-25, default 15;
+  20 recommended; 0 = instant ticket + RESULT URL for long jobs).
 
-## Step 2 — read the result (open the RESULT URL with YOUR tool, again)
-Open the RESULT URL printed on the submission page — with YOUR browsing tool,
-never via the user (it contains your ticket and &wait=20, so the page itself
-waits up to 20 seconds for the result). Typical
+## Step 2 — read the result (only after a wait=0 ticket)
+Submitted with wait=20 and the page shows STATUS completed/failed? You are
+done — report it (step 4 of THE CONTRACT). Submitted with wait=0: open the
+RESULT URL printed on the submission page — with YOUR browsing tool, never
+via the user (it contains your ticket and &wait=20, so the page itself waits
+up to 20 seconds for the result). Typical
 cycle: the node picks the job up in 5-10 seconds. If STATUS is still "pending"
 or "running", RE-OPEN THE SAME RESULT URL every 5-10 seconds and keep retrying
 for up to 2 minutes before concluding anything — a busy node can occasionally
@@ -725,7 +837,7 @@ MODEC;
                 $prompt = str_replace(
                         array( '{VERSION}', '{SITE_URL}', '{KEY_LINE}', '{API_KEY_PH}', '{KEY}', '{REPO_URL}' ),
                         array(
-                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '2.6.0',
+                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '2.7.0',
                                 untrailingslashit( (string) $site_url ),
                                 $key_line,
                                 $api_key_ph,
