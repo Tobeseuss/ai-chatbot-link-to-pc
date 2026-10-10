@@ -152,6 +152,15 @@ class ACLP_Utils {
          * کاربر در داشبورد هر متن را با هر کلید انتخاب و کپی کند؛ پارامتر سوم
          * $method در همین تابع هم به همان متون هدایت می‌شود.
          *
+         * از v2.4.0 (درخواست مالک — «هوش‌ها URL را درست می‌سازند ولی هیچ‌کدام عملاً
+         * آدرس را باز نمی‌کنند تا نتیجه را از صفحه بررسی کنند»): متن MODE C از
+         * «توصیف رفتار» به «قرارداد مکانیکی اجباری» تبدیل شد — THE CONTRACT با
+         * توالی دقیق ۴ مرحله‌ای (فراخوانی واقعی ابزار مرور ← خواندن صفحه ← تکرار
+         * RESULT URL ← گزارش به کاربر)، فهرست FORBIDDEN (تحویل URL به کاربر،
+         * پایان نوبت بعد از فقط ساختن URL، حدس نتیجه)، پروتکل خطای ابزار مرور
+         * (تکرار ۱-۲ بار + نقل عینی خطای ابزار) و چک‌لیست پایان نوبت. صفحات خود
+         * دروازه URL هم یادآوری AI-facing گرفتند (توسعه اصل ۵ — class-aclp-rest.php).
+         *
          * @param string $site_url آدرس سایت (خالی = سایت فعلی) — همیشه خودکار جای‌گذاری می‌شود.
          * @param string $api_key  کلید API (خالی = جای‌نگهدار تا ایجنت از کاربر بپرسد).
          * @param string $method   full (پیش‌فرض) | a | b | c — متن کوتاه یک روش.
@@ -282,24 +291,46 @@ in their terminal. For EVERY single step:
    NEVER invent output — always wait for the paste.
 
 =====================================================================
-## MODE C — URL-ONLY clients (open a URL, read the page)
+## MODE C — URL-ONLY clients (call your web-browsing tool with a URL)
 =====================================================================
 If you cannot run code, send POST requests or set custom headers — but you CAN
 open a web address and read its content — use the URL Gateway. The command sits
 at the end of the URL, and the opened page shows the job report. Use MODE C
 ALSO whenever a request attempt returned "aclp_missing_key" — that error means
 your tool could not attach the key as a header.
+
+### THE CONTRACT — a request is complete ONLY after you have read the page
+Building the URL is only the FIRST HALF of a request. A URL that is never
+opened is NOT a request: nothing runs, nothing is queued, nothing comes back.
+Every single MODE C request means this exact sequence, executed BY YOU:
+  1. INVOKE your own web-browsing tool with the full URL as the argument
+     (whatever your platform calls it: browse / browser / web.run / web fetch /
+     open_url / url_reader — a real tool call, not just writing the URL down);
+  2. READ the page the tool returned — the result exists ONLY on that page;
+  3. STATUS pending/running? INVOKE the tool AGAIN with the RESULT URL printed
+     on the page, every 5-10 seconds, until STATUS is completed or failed;
+  4. REPORT the actual page contents to the user in your own words.
+The user has NO part in these four steps and must never be asked to do them.
+
+### FORBIDDEN (each of these is a failed request, not an alternative)
+- Printing or handing over any ACLP URL for the user to open, click or paste
+  back. This includes "please visit this link" phrasings of any kind.
+- Finishing your turn after only writing or constructing the URL.
+- Describing what the page "would" or "will" show without having read it.
+- Inventing results, statuses or output of any kind.
+If your browsing tool errors or times out: retry the same URL once or twice,
+then report the tool's error message verbatim. NEVER fake the page content.
+
 HOW THE URLS WORK: every request URL below ALREADY CONTAINS the API key after
-"key=". Do not add, edit or ask about credentials — just open the URLs exactly
-as printed. Opening these URLs is YOUR part of the integration: use your own
-web-browsing tool yourself and read the returned page yourself. Do NOT ask the
-user to open links or to paste page contents — the user cannot do this step.
+"key=". Do not add, edit or ask about credentials — open the URLs exactly as
+printed ("open" = invoke your own browsing tool, as required by THE CONTRACT).
 
 0) Optional connectivity check first (plain-text page, no job created):
        {SITE_URL}/wp-json/aclp/v1/ping?key={KEY}&format=text
 
-1) Submit the job. Chat browsing tools often have SHORT page timeouts (5-15s),
-   so submit with wait=0 — the page answers INSTANTLY with the job ticket:
+1) Submit the job BY OPENING this URL with your browsing tool (a real tool
+   call). Chat browsing tools often have SHORT page timeouts (5-15s), so submit
+   with wait=0 — the page answers INSTANTLY with the job ticket:
        {SITE_URL}/wp-json/aclp/v1/url/run?key={KEY}&cmd=<command>&wait=0
    - "cmd" = ONE SIMPLE shell command, URL-encoded (spaces become %20). Example:
        .../url/run?key={KEY}&cmd=echo%20hello&wait=0
@@ -319,8 +350,9 @@ user to open links or to paste page contents — the user cannot do this step.
    - Non-shell job: drop "cmd"/"cmd64" and pass "type" instead, e.g.
        .../url/run?key={KEY}&type=sysinfo&wait=0
    - "wait" = seconds the page keeps collecting the result (0-25, default 15).
-2) Open the RESULT URL printed on the submission page (it contains your ticket
-   and &wait=20, so the page itself waits up to 20 seconds for the result).
+2) Read the result: OPEN the RESULT URL printed on the ticket page — again
+   with YOUR browsing tool (it contains your ticket and &wait=20, so the page
+   itself waits up to 20 seconds for the result).
    Typical cycle: the node picks the job up in 5-10 seconds. If STATUS is still
    "pending" or "running", RE-OPEN THE SAME RESULT URL every 5-10 seconds and
    keep retrying for up to 2 minutes before concluding anything — a busy node
@@ -371,6 +403,10 @@ operator approval); shell also accepts {"elevated": true} when configured.
 - Default to "wait": true; fall back to polling the result endpoint every 3-5 seconds
   (MODE A), waiting for the paste (MODE B) or re-opening the result URL (MODE C).
   Never guess results.
+- MODE C completion check before you answer the user: did you actually invoke
+  your browsing tool for every URL, read every returned page, and quote real
+  page values? If any answer is "no", your job is not done — go back and open
+  the URL now (THE CONTRACT above).
 - Say briefly what each job does before submitting it.
 - Files you receive include "download_url" — a signed link that works without any header.
 - Full API reference (open it if unsure): {REPO_URL}/blob/main/docs/AGENT-API.md
@@ -382,7 +418,7 @@ PROMPT;
                 $prompt = str_replace(
                         array( '{VERSION}', '{SITE_URL}', '{KEY_LINE}', '{API_KEY_PH}', '{KEY}', '{REPO_URL}' ),
                         array(
-                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '2.3.0',
+                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '2.4.0',
                                 untrailingslashit( (string) $site_url ),
                                 $key_line,
                                 $api_key_ph,
@@ -462,6 +498,10 @@ JOBT;
 - Default to "wait": true; fall back to polling the result endpoint every 3-5 seconds
   (MODE A), waiting for the paste (MODE B) or re-opening the result URL (MODE C).
   Never guess results.
+- MODE C completion check before you answer the user: did you actually invoke
+  your browsing tool for every URL, read every returned page, and quote real
+  page values? If any answer is "no", your job is not done — go back and open
+  the URL now (THE CONTRACT above).
 - Say briefly what each job does before submitting it.
 - Files you receive include "download_url" — a signed link that works without any header.
 - Full API reference (open it if unsure): {REPO_URL}/blob/main/docs/AGENT-API.md
@@ -558,17 +598,33 @@ MODEB;
 ## How you work with this service (important)
 - Every request URL below ALREADY CONTAINS the API key after "key=". Do not add,
   edit or ask about credentials — open the URLs exactly as printed.
-- Opening the URLs is YOUR part of the integration: use your own web-browsing
-  tool yourself and read the returned page yourself. Do NOT ask the user to open
-  links for you or to paste page contents — the user cannot do this step.
 - If the key above is still a placeholder, ask the user for the real key once and
   simply substitute it for the placeholder inside the URLs (plain text swap).
 - Never invent output — always read the real page the URL returned.
 
+## THE CONTRACT — a request is complete ONLY after you have read the page
+Building the URL is only the FIRST HALF of a request. A URL that is never opened
+is NOT a request: nothing runs, nothing is queued, nothing comes back. Every
+MODE C request means this exact sequence, executed BY YOU:
+  1. INVOKE your own web-browsing tool with the full URL as the argument
+     (whatever your platform calls it: browse / browser / web.run / web fetch /
+     open_url / url_reader — a real tool call, not just writing the URL down);
+  2. READ the page the tool returned — the result exists ONLY on that page;
+  3. STATUS pending/running? INVOKE the tool AGAIN with the RESULT URL printed
+     on the page, every 5-10 seconds, until STATUS is completed or failed;
+  4. REPORT the actual page contents to the user in your own words.
+The user has NO part in these four steps and must never be asked to do them.
+FORBIDDEN (each is a failed request, not an alternative): handing any ACLP URL
+to the user, asking the user to open it or paste its contents ("please visit
+this link" counts too), finishing your turn after only writing the URL,
+describing what the page "would" show without reading it, or inventing results.
+If your browsing tool errors or times out: retry the same URL once or twice,
+then quote the tool's error message verbatim — never fake the page content.
+
 ## Step 0 — connection check (optional, plain-text page, no job created)
     {SITE_URL}/wp-json/aclp/v1/ping?key={KEY}&format=text
 
-## Step 1 — submit the job (wait=0 = instant ticket page)
+## Step 1 — submit the job BY OPENING the URL with your tool (wait=0 = instant ticket)
 Chat browsing tools often have SHORT page timeouts (5-15s), so submit with
 wait=0 — the page answers INSTANTLY with the job ticket:
     {SITE_URL}/wp-json/aclp/v1/url/run?key={KEY}&cmd=<command>&wait=0
@@ -591,9 +647,10 @@ wait=0 — the page answers INSTANTLY with the job ticket:
     .../url/run?key={KEY}&type=sysinfo&wait=0
 - "wait" = seconds the page keeps collecting the result (0-25, default 15).
 
-## Step 2 — read the result
-Open the RESULT URL printed on the submission page (it contains your ticket and
-&wait=20, so the page itself waits up to 20 seconds for the result). Typical
+## Step 2 — read the result (open the RESULT URL with YOUR tool, again)
+Open the RESULT URL printed on the submission page — with YOUR browsing tool,
+never via the user (it contains your ticket and &wait=20, so the page itself
+waits up to 20 seconds for the result). Typical
 cycle: the node picks the job up in 5-10 seconds. If STATUS is still "pending"
 or "running", RE-OPEN THE SAME RESULT URL every 5-10 seconds and keep retrying
 for up to 2 minutes before concluding anything — a busy node can occasionally
@@ -624,7 +681,7 @@ MODEC;
                 $prompt = str_replace(
                         array( '{VERSION}', '{SITE_URL}', '{KEY_LINE}', '{API_KEY_PH}', '{KEY}', '{REPO_URL}' ),
                         array(
-                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '2.3.0',
+                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '2.4.0',
                                 untrailingslashit( (string) $site_url ),
                                 $key_line,
                                 $api_key_ph,

@@ -2,7 +2,7 @@
 
 > پل ارتباطی بین چت‌بات‌های هوش مصنوعی و سیستم‌عامل کاربر (ویندوز / لینوکس) — افزونه وردپرس + ایجنت پایتون
 
-[![Version](https://img.shields.io/badge/version-2.3.0-blue.svg)](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases)
+[![Version](https://img.shields.io/badge/version-2.4.0-blue.svg)](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases)
 [![License](https://img.shields.io/badge/license-GPL--2.0-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey.svg)]()
 
@@ -21,9 +21,11 @@
 > **از v2.2.0 (توسعه اصل ۵ — تست میدانی با ChatGPT):** دروازه URL با تجربه واقعی ایجنت‌های مرورگر (ChatGPT) تست شد و سه مانع حذف شد: ① `GET /ping?key=...&format=text` حالا یک صفحه متنی انگلیسی به ایجنت‌های فقط-URL می‌دهد (تست اتصال بدون هدر)؛ ② گزارش کار حالا خط **NODE** دارد (نام گره + آنلاین/آفلاین + سن ضربان) و راهنمای واقع‌بینانه تکرار می‌دهد (باز کردن RESULT URL هر ۵-۱۰ ثانیه تا ~۲ دقیقه)؛ ③ متن اصل ۴ به چت‌بات‌های مرورگر (ChatGPT/Claude/Gemini/...) می‌گوید MODE C هستند و با **`wait=0`** بفرستند (ticket فوری، بدون timeout شدن ابزار مرور) و بعد RESULT URL چاپ‌شده (که حالا `&wait=20` دارد) را دوباره باز کنند.
 >
 > **از v2.3.0 (درخواست مالک):** ① **انتخاب مجزای راهنما برای هر روش** — راهنمای اتصال طولانی شده بود؛ حالا در داشبورد پلاگین یک منوی «روش اتصال» کنار منوی کلید API اضافه شده و می‌توانید فقط متن کوتاه همان روش (کامل / A / B / C) را با هر کلید بسازید و کپی کنید؛ از REST هم `GET /agent-prompt?method=c&api_key=...&format=text` همین کار را می‌کند (خودِ توزیع راهنما هم از طریق باز کردن URL — توسعه اصل ۵). ② **کلید از ابتدا در URL روش ۳** — همه آدرس‌های MODE C از همان ابتدا `key=...` را داخل خود دارند و از هوش مصنوعی خواسته نمی‌شود کلید را در URL بگذارد؛ متن صریحاً می‌گوید باز کردن لینک‌ها کار خود ایجنت است (نه کاربر) تا مثل گزارش مالک، ChatGPT لینک را به کاربر پس ندهد. ③ **اسکرین‌شات بدون هیچ وابستگی** — اکشن `screenshot` ایجنت دیگر pyautogui نمی‌خواهد: ویندوز با PowerShell داخلی خودش (System.Drawing)، مک با `screencapture` و لینوکس با scrot/gnome-screenshot/maim/spectacle/ImageMagick کار می‌کند؛ pyautogui فقط fallback اختیاری است.
+>
+> **از v2.4.0 (درخواست مالک — «هوش‌ها دستور را درست در URL می‌گذارند ولی هیچ‌کدام عملاً آدرس را باز نمی‌کنند»):** متن روش C از «توصیف» به **قرارداد مکانیکی اجباری (THE CONTRACT)** تبدیل شد: ساختن URL فقط نیمی از درخواست است؛ درخواست فقط وقتی کامل است که مدل ① ابزار مرور وب خودش را با URL کامل **واقعاً فراخوانی** کند (browse / web.run / web fetch / open_url — هر اسمی که پلتفرم می‌گذارد)، ② صفحه برگشتی را بخواند (نتیجه فقط همان‌جاست)، ③ در حالت pending همان RESULT URL را دوباره باز کند، ④ محتوای واقعی صفحه را به کاربر گزارش کند. فهرست **FORBIDDEN** تحویل URL به کاربر، «لطفاً این لینک را باز کنید»، پایان نوبت بعد از فقط ساختن URL و حدس نتیجه را ممنوع کرده و پروتکل خطای ابزار مرور (تکرار ۱-۲ بار + نقل عینی خطا) آمده است. **توسعه اصل ۵:** خودِ صفحات دروازه URL هم یادآوری AI-facing گرفتند — صفحه ticket در انتظار، صفحه نتیجه، صفحه راهنما و صفحات خطا حالا در انتهایشان دستور بعدیِ مکانیکی مدل را چاپ می‌کنند («دوباره با ابزار خودت باز کن» / «الان نتیجه را به کاربر گزارش بده»).
 
 ```text
-# ACLP BRIDGE — API CLIENT INTEGRATION GUIDE (v2.3.0)
+# ACLP BRIDGE — API CLIENT INTEGRATION GUIDE (v2.4.0)
 
 The ACLP Bridge is a REST job-processing service. You interact with it exactly
 like any other API: you build a JSON request, submit it to one endpoint, and the
@@ -134,24 +136,46 @@ in their terminal. For EVERY single step:
    NEVER invent output — always wait for the paste.
 
 =====================================================================
-## MODE C — URL-ONLY clients (open a URL, read the page)
+## MODE C — URL-ONLY clients (call your web-browsing tool with a URL)
 =====================================================================
 If you cannot run code, send POST requests or set custom headers — but you CAN
 open a web address and read its content — use the URL Gateway. The command sits
 at the end of the URL, and the opened page shows the job report. Use MODE C
 ALSO whenever a request attempt returned "aclp_missing_key" — that error means
 your tool could not attach the key as a header.
+
+### THE CONTRACT — a request is complete ONLY after you have read the page
+Building the URL is only the FIRST HALF of a request. A URL that is never
+opened is NOT a request: nothing runs, nothing is queued, nothing comes back.
+Every single MODE C request means this exact sequence, executed BY YOU:
+  1. INVOKE your own web-browsing tool with the full URL as the argument
+     (whatever your platform calls it: browse / browser / web.run / web fetch /
+     open_url / url_reader — a real tool call, not just writing the URL down);
+  2. READ the page the tool returned — the result exists ONLY on that page;
+  3. STATUS pending/running? INVOKE the tool AGAIN with the RESULT URL printed
+     on the page, every 5-10 seconds, until STATUS is completed or failed;
+  4. REPORT the actual page contents to the user in your own words.
+The user has NO part in these four steps and must never be asked to do them.
+
+### FORBIDDEN (each of these is a failed request, not an alternative)
+- Printing or handing over any ACLP URL for the user to open, click or paste
+  back. This includes "please visit this link" phrasings of any kind.
+- Finishing your turn after only writing or constructing the URL.
+- Describing what the page "would" or "will" show without having read it.
+- Inventing results, statuses or output of any kind.
+If your browsing tool errors or times out: retry the same URL once or twice,
+then report the tool's error message verbatim. NEVER fake the page content.
+
 HOW THE URLS WORK: every request URL below ALREADY CONTAINS the API key after
-"key=". Do not add, edit or ask about credentials — just open the URLs exactly
-as printed. Opening these URLs is YOUR part of the integration: use your own
-web-browsing tool yourself and read the returned page yourself. Do NOT ask the
-user to open links or to paste page contents — the user cannot do this step.
+"key=". Do not add, edit or ask about credentials — open the URLs exactly as
+printed ("open" = invoke your own browsing tool, as required by THE CONTRACT).
 
 0) Optional connectivity check first (plain-text page, no job created):
        https://YOUR-SITE.com/wp-json/aclp/v1/ping?key={KEY}&format=text
 
-1) Submit the job. Chat browsing tools often have SHORT page timeouts (5-15s),
-   so submit with wait=0 — the page answers INSTANTLY with the job ticket:
+1) Submit the job BY OPENING this URL with your browsing tool (a real tool
+   call). Chat browsing tools often have SHORT page timeouts (5-15s), so submit
+   with wait=0 — the page answers INSTANTLY with the job ticket:
        https://YOUR-SITE.com/wp-json/aclp/v1/url/run?key={KEY}&cmd=<command>&wait=0
    - "cmd" = ONE SIMPLE shell command, URL-encoded (spaces become %20). Example:
        .../url/run?key={KEY}&cmd=echo%20hello&wait=0
@@ -171,8 +195,9 @@ user to open links or to paste page contents — the user cannot do this step.
    - Non-shell job: drop "cmd"/"cmd64" and pass "type" instead, e.g.
        .../url/run?key={KEY}&type=sysinfo&wait=0
    - "wait" = seconds the page keeps collecting the result (0-25, default 15).
-2) Open the RESULT URL printed on the submission page (it contains your ticket
-   and &wait=20, so the page itself waits up to 20 seconds for the result).
+2) Read the result: OPEN the RESULT URL printed on the ticket page — again
+   with YOUR browsing tool (it contains your ticket and &wait=20, so the page
+   itself waits up to 20 seconds for the result).
    Typical cycle: the node picks the job up in 5-10 seconds. If STATUS is still
    "pending" or "running", RE-OPEN THE SAME RESULT URL every 5-10 seconds and
    keep retrying for up to 2 minutes before concluding anything — a busy node
@@ -223,6 +248,10 @@ operator approval); shell also accepts {"elevated": true} when configured.
 - Default to "wait": true; fall back to polling the result endpoint every 3-5 seconds
   (MODE A), waiting for the paste (MODE B) or re-opening the result URL (MODE C).
   Never guess results.
+- MODE C completion check before you answer the user: did you actually invoke
+  your browsing tool for every URL, read every returned page, and quote real
+  page values? If any answer is "no", your job is not done — go back and open
+  the URL now (THE CONTRACT above).
 - Say briefly what each job does before submitting it.
 - Files you receive include "download_url" — a signed link that works without any header.
 - Full API reference (open it if unsure): https://github.com/Tobeseuss/ai-chatbot-link-to-pc/blob/main/docs/AGENT-API.md
@@ -301,14 +330,14 @@ operator approval); shell also accepts {"elevated": true} when configured.
 
 ### گام ۱ — نصب افزونه در وردپرس
 
-1. از بخش [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) فایل `ai-chatbot-link-to-pc-v2.3.0.zip` را دانلود کنید.
+1. از بخش [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) فایل `ai-chatbot-link-to-pc-v2.4.0.zip` را دانلود کنید.
 2. در وردپرس: **افزونه‌ها ← افزودن ← بارگذاری افزونه** و فایل ZIP را نصب و فعال کنید.
 3. منوی جدید **«AI-PC Link»** در پیشخوان ظاهر می‌شود.
 
 ### گام ۲ — ساخت کلید API و نصب ایجنت
 
 1. **AI-PC Link ← کلیدهای API ← ساخت کلید جدید** — کلید ساخته می‌شود و از همان‌جا و در هر زمان آینده قابل مشاهده و کپی است (دکمه «کپی» کنار کلید).
-2. فایل `aclp-agent-v2.3.0.zip` را از Releases دانلود و روی سیستم خود (ویندوز/لینوکس) استخراج کنید.
+2. فایل `aclp-agent-v2.4.0.zip` را از Releases دانلود و روی سیستم خود (ویندوز/لینوکس) استخراج کنید.
 3. اجرا کنید:
    - **ویندوز:** دوبار کلیک روی `start_agent.bat`
    - **لینوکس:** `chmod +x start_agent.sh && ./start_agent.sh`
@@ -385,12 +414,12 @@ JSON پیچیده کارهای پیشرفته هم از طریق `payload64` (ه
 
 | فایل | کاربرد | محل |
 |------|--------|-----|
-| `ai-chatbot-link-to-pc-v2.3.0.zip` | افزونه وردپرس | [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) |
-| `aclp-agent-v2.3.0.zip` | ایجنت سیستم (پایتون — بدون هیچ وابستگی) | [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) |
+| `ai-chatbot-link-to-pc-v2.4.0.zip` | افزونه وردپرس | [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) |
+| `aclp-agent-v2.4.0.zip` | ایجنت سیستم (پایتون — بدون هیچ وابستگی) | [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) |
 
 پیش‌نیازها: وردپرس 5.8+ با PHP 7.4+ · پایتون 3.8+ روی سیستم کاربر
 
-> ایجنت از نسخه 1.3.0 فقط با کتابخانه استاندارد پایتون کار می‌کند — هیچ pip install و هیچ دانلودی لازم نیست؛ پوشه ایجنت کامل و خودکفاست. برای قابلیت اختیاری اسکرین‌شات: `pip install pyautogui pillow`
+> ایجنت از نسخه 1.3.0 فقط با کتابخانه استاندارد پایتون کار می‌کند — هیچ pip install و هیچ دانلودی لازم نیست؛ پوشه ایجنت کامل و خودکفاست. از نسخه 2.3.0 حتی اسکرین‌شات هم بدون وابستگی کار می‌کند (ویندوز: PowerShell داخلی، مک: `screencapture`، لینوکس: scrot/gnome-screenshot/maim/spectacle/ImageMagick در صورت موجود بودن) — pyautogui فقط fallback اختیاری است.
 
 ---
 
@@ -435,6 +464,7 @@ JSON پیچیده کارهای پیشرفته هم از طریق `payload64` (ه
 | فرمان در صف می‌ماند | ایجنت در حال اجراست؟ کنسول ایجنت را ببینید؛ بخش «سیستم‌های متصل» باید آنلاین باشد |
 | آدرس `/url/run` خطای 404 می‌دهد | افزونه سایت هنوز نسخه **2.0.0+** نیست — ZIP جدید را نصب کنید (`/ping` باید `"url_gate": true` برگرداند) |
 | صفحه می‌گوید `cmd64 is not valid Base64` | دستور پیچیده را درست Base64 نکرده‌اید — متن دستور را Base64 کنید و شکل URL-safe بسازید (`+` به `-`، `/` به `_`، حذف `=`)؛ پایه‌ی دیکد استاندارد هم پذیرفته است؛ بعد آدرس را دوباره باز کنید |
+| هوش مصنوعی URL را می‌سازد ولی باز نمی‌کند / لینک را به کاربر پس می‌دهد | متن روش C نسخه **2.4.0+** را به مدل بدهید (داشبورد ← روش C) — قرارداد اجباری «فراخوانی ابزار مرور ← خواندن صفحه ← تکرار RESULT URL ← گزارش به کاربر» + فهرست FORBIDDEN دارد؛ صفحات دروازه هم خودشان به مدل یادآوری می‌دهند. اگر مدل واقعاً ابزار مرور وب ندارد، این را صریح بپرسید و از روش B (رله) استفاده کنید |
 | خطای حجم فایل | مقدار `post_max_size` و `upload_max_filesize` PHP سرور را افزایش دهید |
 | آپلود بزرگ شکست می‌خورد | در تنظیمات پلاگین سقف حجم را کم کنید یا محدودیت PHP را بالا ببرید |
 | دستورات مدیر اجرا نمی‌شوند | اکشن `privilege_status` را بزنید؛ در لینوکس `elevation_password` را در config.json بگذارید، در ویندوز روی پیام UAC «Yes» بزنید یا ایجنت را با Run as administrator اجرا کنید |
@@ -456,9 +486,10 @@ JSON پیچیده کارهای پیشرفته هم از طریق `payload64` (ه
 - [x] **v2.1.0 (توسعه اصل ۵ — درخواست مالک) — کدگذاری دستورات پیچیده در دروازه URL:** دستورات متنی پیچیده (کوتیشن، `&`، `|`، `>`، خط جدید، نویسه غیر ASCII) نباید خام در URL قرار بگیرند — پارامتر `cmd64` (مستعار `b64`) دستور را Base64 گرفته و سرور سه شکل (URL-safe توصیه‌شده، استاندارد خام، استاندارد percent-encoded) را خودکار دیکد می‌کند + `payload64` برای JSON پیچیده + اعتبارسنجی کامل با خطای انگلیسی واضح + `/ping` فیلد `url_gate_cmd64` + آموزش قاعده به ایجنت‌ها در متن اصل ۴ (MODE C)، صفحه راهنمای خودکار و AGENT-API.md 3.10
 - [x] **v2.2.0 (توسعه اصل ۵ — تست میدانی با ChatGPT):** دروازه URL دقیقاً مثل ChatGPT تست شد و سه مانع واقعی حذف شد: ① `GET /ping` حالا کلید را از query می‌پذیرد و با `&format=text` صفحه متنی انگلیسی می‌دهد (تست اتصال ایجنت‌های فقط-URL + شمارش گره‌های آنلاین)؛ ② گزارش دروازه خط **NODE** دارد (نام گره، آنلاین/آفلاین، سن ضربان) و متن pending راهنمای واقع‌بینانه می‌دهد (تکرار RESULT URL با `&wait=20` هر ۵-۱۰ ثانیه تا ~۲ دقیقه — pickup معمول ۵-۱۰ ثانیه، گره شلوغ تا ~۶۰ ثانیه)؛ ③ متن اصل ۴: تشخیص خودکار «شما یک چت‌بات مرورگری هستید → MODE C»، ارسال با `wait=0` (ticket فوری، بدون timeout ابزار مرور) و باز کردن دوباره RESULT URL؛ `/ping` فیلد `url_gate_ping`
 - [x] **v2.3.0 (درخواست مالک):** راهنمای مجزا برای هر روش با هر کلید (داشبورد + `GET /agent-prompt?method=...&format=text`)؛ کلید API از ابتدا در همه URLهای روش C با متن «باز کردن لینک کار خودِ ایجنت است» برای جلوگیری از امتناع/ارجاع چت‌بات‌های مرورگر؛ اسکرین‌شات صفر-وابستگی (PowerShell/screencapture/ابزارهای لینوکس — pyautogui فقط fallback)؛ تست واحد ۳۷ موردی برای متون راهنما
-- [ ] **v2.4** — WebSocket برای دریافت لحظه‌ای فرمان (بدون polling) + اعلان به چت‌بات با webhook + توسعه بیشتر دروازه URL (broadcast و صف چندفرمانی از طریق URL)
-- [ ] **v2.5** — رمزنگاری سرتاسری payload، پشتیبانی macOS، حالت تأیید دستوری اختیاری
-- [ ] **v2.6** — اجرای زمان‌بندی‌شده فرمان‌ها، گروه‌بندی سیستم‌ها، نقش‌های کاربری
+- [x] **v2.4.0 (توسعه اصل ۵ — درخواست مالک: «هوش‌ها URL را می‌سازند ولی باز نمی‌کنند»):** متن روش C به **قرارداد مکانیکی اجباری (THE CONTRACT)** تبدیل شد — توالی ۴ مرحله‌ای فراخوانی واقعی ابزار مرور ← خواندن صفحه ← تکرار RESULT URL ← گزارش به کاربر + فهرست FORBIDDEN (تحویل URL به کاربر، «لطفاً باز کنید»، پایان نوبت بعد از فقط ساختن URL، حدس نتیجه) + پروتکل خطای ابزار مرور + چک‌لیست پایان نوبت در قواعد؛ **صفحات خود دروازه** (ticket در انتظار / نتیجه / راهنما / خطا) پانویس یادآوری AI-facing گرفتند؛ تست واحد به ۶۲ مورد رسید
+- [ ] **v2.5** — WebSocket برای دریافت لحظه‌ای فرمان (بدون polling) + اعلان به چت‌بات با webhook + توسعه بیشتر دروازه URL (broadcast و صف چندفرمانی از طریق URL)
+- [ ] **v2.6** — رمزنگاری سرتاسری payload، پشتیبانی macOS، حالت تأیید دستوری اختیاری
+- [ ] **v2.7** — اجرای زمان‌بندی‌شده فرمان‌ها، گروه‌بندی سیستم‌ها، نقش‌های کاربری
 
 پیشنهادهای شما هم خوشآمدید — [Issue بسازید](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/issues).
 

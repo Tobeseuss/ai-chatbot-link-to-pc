@@ -960,12 +960,16 @@ class ACLP_REST {
                 if ( 'json' === $format ) {
                         return new WP_Error( $code, $en, array( 'status' => $status ) );
                 }
+                // توسعه اصل ۵ (v2.4.0): صفحه خطا هم مخاطب AI است — یادآوری چرخه باز کردن.
                 self::url_gate_text(
                         "ACLP URL GATE — ERROR\n" .
                         str_repeat( '-', 62 ) . "\n" .
                         'STATUS:  error (' . (int) $status . ')' . "\n" .
                         'CODE:    ' . $code . "\n" .
-                        'REASON:  ' . $en . "\n"
+                        'REASON:  ' . $en . "\n" .
+                        "\n" .
+                        "AGENT: fix the URL yourself and open the corrected URL again with your\n" .
+                        "own web-browsing tool — never hand this URL to the user to open.\n"
                 );
                 return null;
         }
@@ -1072,6 +1076,10 @@ class ACLP_REST {
                 $repo = untrailingslashit( (string) ACLP_Settings::get( 'github_repo_url', 'https://github.com/Tobeseuss/ai-chatbot-link-to-pc' ) );
                 return "ACLP URL GATE — usage (ACLP Bridge v" . ACLP_VERSION . ")\n" .
                         str_repeat( '=', 62 ) . "\n\n" .
+                        "AGENTS (AI models): building one of the URLs below is only HALF of a\n" .
+                        "request — you must OPEN it with your own web-browsing tool and READ the\n" .
+                        "returned page. A URL that is never opened is not a request, and handing\n" .
+                        "it to the user is a failed interaction. Never invent results.\n\n" .
                         "Run a shell command and read the result from the opened page:\n" .
                         "  " . $site . "/wp-json/aclp/v1/url/run?key=YOUR_API_KEY&cmd=echo%20hello&wait=15\n\n" .
                         "COMPLEX command (quotes, &, |, >, <, newlines, non-ASCII)? SEND IT BASE64-ENCODED —\n" .
@@ -1166,6 +1174,20 @@ class ACLP_REST {
                         }
                 } else {
                         $lines[] = 'FILES: (none)';
+                }
+
+                // توسعه اصل ۵ (v2.4.0 — درخواست مالک: «هوش‌ها URL را می‌سازند ولی باز
+                // نمی‌کنند»): پانویس AI-facing در انتهای هر گزارش — آخرین چیزی که مدل
+                // می‌خواند، دستور بعدی مکانیکی است: باز کردن دوباره یا گزارش به کاربر.
+                $lines[] = '';
+                if ( in_array( $row->status, array( 'completed', 'failed' ), true ) ) {
+                        $lines[] = 'AGENT (you, reading this page): the job is finished — now REPORT the';
+                        $lines[] = 'RESULT/ERROR above to the user in your own words. Do not end the turn';
+                        $lines[] = 'by handing over raw URLs instead of the actual result.';
+                } else {
+                        $lines[] = 'AGENT (you, reading this page): the job is still ' . $row->status . ' — OPEN the';
+                        $lines[] = 'RESULT URL above AGAIN with YOUR web-browsing tool every 5-10 seconds';
+                        $lines[] = '(up to ~2 min) and read the new page. Never delegate this to the user.';
                 }
 
                 self::url_gate_text( implode( "\n", $lines ) . "\n" );

@@ -3,7 +3,24 @@
 > **Persian note (برای کاربر):** این سند عمداً به انگلیسی نوشته شده است، چون مخاطب اصلی آن چت‌بات‌ها و ایجنت‌های هوش مصنوعی هستند که مستندات انگلیسی را قابل‌اعتمادتر پارس می‌کنند. راهنمای فارسی کاربر: `docs/USER-GUIDE.fa.md`. این فایل را در system prompt یا ابزار knowledge چت‌بات خود قرار دهید تا بداند چگونه با سیستم کاربر تعامل کند.
 
 Base URL: `https://YOUR-SITE.com/wp-json/aclp/v1`
-Plugin version: 2.3.0 · API namespace: `aclp/v1`
+Plugin version: 2.4.0 · API namespace: `aclp/v1`
+
+> **v2.4.0 — THE CONTRACT: OPENING THE URL IS MANDATORY (Principle 5 development,
+> owner report: "AIs build the URL correctly but none of them actually opens it to
+> check the result and tell the user"):** the MODE C guide is no longer a description —
+> it is a mechanical contract. A MODE C request is complete ONLY after the agent
+> (1) actually **invokes its own web-browsing tool** with the full URL (browse /
+> browser / web.run / web fetch / open_url / url_reader — whatever the platform calls
+> it), (2) **reads the returned page** (the result exists only there), (3) re-invokes
+> the tool with the RESULT URL while STATUS is pending/running, and (4) **reports the
+> actual page contents to the user**. A FORBIDDEN list declares handing the URL to the
+> user, "please visit this link" phrasings, ending the turn after only writing the
+> URL, and inventing results as FAILED requests. If the browsing tool errors: retry
+> once or twice, then quote the tool's error verbatim — never fake the page.
+> **The gate pages themselves now reinforce this**: the pending ticket page, the
+> finished report page, the usage/help page and every error page end (or start) with
+> an AI-facing reminder ("open the RESULT URL again with YOUR tool" / "report the
+> RESULT above to the user now" / "fix the URL yourself and open it again").
 
 > **v2.3.0 — PER-MODE GUIDES + KEY PRE-EMBEDDED IN MODE C URLS + ZERO-DEP SCREENSHOT
 > (owner requests):** (1) the onboarding text is now available as a short **single-mode
@@ -246,11 +263,26 @@ curl or wget **without any auth header**. Use it when you cannot set custom head
 you want to hand a file to the user/another AI as a plain link. Links stay valid while the
 file exists (retention policy governs deletion).
 
-### 3.10 `GET /url/run` + `GET /url/result` — URL GATE (v2.0.0, Principle 5; Base64 since v2.1.0)
+### 3.10 `GET /url/run` + `GET /url/result` — URL GATE (v2.0.0, Principle 5; Base64 since v2.1.0; mandatory-open contract since v2.4.0)
 
 For agents that say *"I cannot use APIs"* but **can open and browse a web page**: put the
 command at the end of the URL, open it, and **the opened page shows the plain-text job
 report** — no POST, no headers, no JSON parsing required. Auth = the `key` query parameter.
+
+**THE CONTRACT (v2.4.0 — mandatory):** building the URL is only the FIRST HALF of a
+request. A URL that is never opened is NOT a request — nothing runs, nothing is queued,
+nothing comes back. Every MODE C request means this exact sequence, executed BY YOU (the
+agent): ① INVOKE your own web-browsing tool with the full URL (browse / browser / web.run
+/ web fetch / open_url / url_reader — a real tool call, not just writing the URL down);
+② READ the page the tool returned — the result exists ONLY on that page; ③ STATUS
+pending/running? INVOKE the tool AGAIN with the RESULT URL printed on the page, every
+5-10 seconds, until STATUS is completed or failed; ④ REPORT the actual page contents to
+the user in your own words. FORBIDDEN (each is a failed request, not an alternative):
+handing any ACLP URL to the user, asking the user to open it or paste its contents
+("please visit this link" counts too), finishing your turn after only writing the URL,
+describing what the page "would" show without reading it, or inventing results. If your
+browsing tool errors or times out: retry the same URL once or twice, then quote the
+tool's error message verbatim — never fake the page content.
 
 **Encoding rule (v2.1.0 — important):** textually COMPLEX commands (quotes, `&`, `|`, `>`,
 `<`, `$`, newlines, non-ASCII) placed raw in the URL break the address. Send them
@@ -277,7 +309,7 @@ GET https://YOUR-SITE.com/wp-json/aclp/v1/url/run?key=aclp_live_xxx&cmd=echo%20h
 The page (Content-Type `text/plain`) looks like:
 
 ```
-ACLP URL GATE — job report (ACLP Bridge v2.2.0)
+ACLP URL GATE — job report (ACLP Bridge v2.4.0)
 --------------------------------------------------------------
 JOB:      9c1f6b2e-1d4a-4c3e-9a2f-5f8e7d6c5b4a (shell)
 STATUS:   completed
@@ -292,7 +324,17 @@ RESULT:
 }
 
 FILES: (none)
+
+AGENT (you, reading this page): the job is finished — now REPORT the
+RESULT/ERROR above to the user in your own words. Do not end the turn
+by handing over raw URLs instead of the actual result.
 ```
+
+Note the **AI-facing footer** (v2.4.0): every gate page ends with the mechanical next
+step for the reading agent — finished pages say "report the RESULT to the user now",
+pending pages say "open the RESULT URL above again with YOUR browsing tool", error
+pages say "fix the URL yourself and open the corrected URL again". Treat that footer
+as part of the protocol.
 
 If `STATUS` is still `pending`/`running`, the page prints a ready-made RESULT URL (with
 `&wait=20`, so the opened page itself waits up to 20 seconds) plus realistic guidance —
