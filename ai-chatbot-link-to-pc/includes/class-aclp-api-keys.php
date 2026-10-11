@@ -64,10 +64,13 @@ class ACLP_API_Keys {
          */
         public static function get_by_plain( $plain ) {
                 global $wpdb;
+                // v2.8.0 (گزارش میدانی Duck.ai): کلیدِ خراب‌شده توسط مارک‌داون مدل
+                // (aclp\_live\_...) اینجا نرمال می‌شود — نقطه واحد عبور همه مسیرهای احراز.
+                $plain = ACLP_Utils::normalize_mangled_key( $plain );
                 if ( ! is_string( $plain ) || strlen( $plain ) < 20 ) {
                         return null;
                 }
-                $hash = hash( 'sha256', trim( $plain ) );
+                $hash = hash( 'sha256', $plain );
                 return $wpdb->get_row(
                         $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}aclp_api_keys WHERE key_hash = %s LIMIT 1", $hash )
                 );

@@ -224,6 +224,23 @@ class ACLP_Utils {
         }
 
         /**
+         * v2.8.0 (گزارش میدانی Duck.ai — Gemma 4 31B، share/0cfda628): مدل‌های کوچک
+         * کلید را با escapeهای مارک‌داون می‌نویسند (aclp\_live\_...) و کوتیشن/فاصله
+         * اضافه می‌گذارند؛ کاربر همان URL خراب را برای مدل کپی می‌کند. کلیدهای ACLP
+         * فقط [A-Za-z0-9_] دارند، پس حذف بقیه کاراکترها بدون‌ضرر همه این خرابی‌ها
+         * را جبران می‌کند (پادزهر سمت سرور — توسعه اصل ۵).
+         *
+         * @param string $plain مقدار خام کلید.
+         * @return string
+         */
+        public static function normalize_mangled_key( $plain ) {
+                if ( ! is_string( $plain ) ) {
+                        return '';
+                }
+                return (string) preg_replace( '/[^A-Za-z0-9_]/', '', trim( $plain ) );
+        }
+
+        /**
          * متن کامل راهنمای استفاده از API برای ایجنت‌های هوش مصنوعی (اصل ۴).
          * (تاریخچه کامل در داک‌بلاک بالای همین کلاس — از v1.4.0 تا v2.7.0.)
          *
@@ -378,18 +395,26 @@ call this API exactly the same way. If an attempt fails, quote your tool's
 real error message verbatim after 1-2 honest retries — that is the only
 failure mode this API recognizes.
 
-### The loop — one URL per job (keeps the conversation short)
+### The loop — one URL per job, opened BY YOU (fully automatic)
 Work with this service in the smallest possible rounds:
   1. The user names a job ("sysinfo", "screenshot", "run dir", ...).
-  2. You reply with ONE short line of intent plus the ONE submit URL for it
-     (wait=20) — no plans, no alternatives, no key questions, no tool talk.
-  3. The page text arrives in the conversation (chat apps fetch URLs sent back
-     to the model; if nothing arrived, ask the user ONCE to send that exact
-     URL back as a chat message).
-  4. You read the page and report the real result. A wait=20 page usually
-     already shows the FINISHED result — the job is then done in one round.
-Only a pending ticket (wait=0 submits, long jobs) needs more rounds: open the
-RESULT URL printed on the ticket page until it is completed or failed.
+  2. You build the ONE submit URL for it (fill-in template below) and OPEN it
+     YOURSELF with your web-browsing tool. The normal flow needs no pastes:
+     the paste-back path (printing the URL for the user) exists only as a
+     fallback after your tool failed to open the URL twice.
+  3. READ the page the tool returned. A wait=20 page usually already shows the
+     FINISHED result — the job is then done in one round, with zero pastes.
+  4. REPORT the real result in your own words. Only a pending ticket (wait=0,
+     long jobs) needs more rounds: re-open the RESULT URL printed on the
+     ticket page every 5-10 seconds until completed or failed.
+
+### Copy-ready submit URL (fill in the job, then open it)
+    {SITE_URL}/wp-json/aclp/v1/url/run?key={KEY}&type=<JOB>&wait=20
+    (zero-argument jobs: sysinfo, ping, screenshot, process_list)
+    {SITE_URL}/wp-json/aclp/v1/url/run?key={KEY}&cmd=<JOB>&wait=20
+    (shell one-liners, URL-encoded; complex text needs cmd64 — see step 1)
+Worked example — the job "sysinfo" as a complete, ready-to-open URL:
+    {SITE_URL}/wp-json/aclp/v1/url/run?key={KEY}&type=sysinfo&wait=20
 
 ### THE CONTRACT — a request is complete ONLY after you have read the page
 Building the URL is only the FIRST HALF of a request. A URL that is never
@@ -503,6 +528,9 @@ operator approval); shell also accepts {"elevated": true} when configured.
   your browsing tool for every URL, read every returned page, and quote real
   page values? If any answer is "no", your job is not done — go back and open
   the URL now (THE CONTRACT above).
+- Normal flow: you open the submit URL yourself and report the page — one
+  round, zero pastes. Printing a URL for the user is the fallback only when
+  your tool failed to open it twice (then say so in one short line).
 - Report page contents, not tool-disclaimers: if a page loaded, describe what
   it showed; if it did not, quote your tool's error message. Pages you already
   opened are the proof of how this API is called.
@@ -527,7 +555,7 @@ PROMPT;
                 $prompt = str_replace(
                         array( '{VERSION}', '{SITE_URL}', '{KEY_LINE}', '{API_KEY_PH}', '{KEY}', '{REPO_URL}' ),
                         array(
-                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '2.7.0',
+                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '2.8.0',
                                 untrailingslashit( (string) $site_url ),
                                 $key_line,
                                 $api_key_ph,
@@ -614,6 +642,9 @@ JOBT;
   your browsing tool for every URL, read every returned page, and quote real
   page values? If any answer is "no", your job is not done — go back and open
   the URL now (THE CONTRACT above).
+- Normal flow: you open the submit URL yourself and report the page — one
+  round, zero pastes. Printing a URL for the user is the fallback only when
+  your tool failed to open it twice (then say so in one short line).
 - Report page contents, not tool-disclaimers: if a page loaded, describe what
   it showed; if it did not, quote your tool's error message. Pages you already
   opened are the proof of how this API is called.
@@ -739,18 +770,25 @@ call this API exactly the same way. If an attempt fails, quote your tool's
 real error message verbatim after 1-2 honest retries — that is the only
 failure mode this API recognizes.
 
-## The loop — one URL per job (keeps the conversation short)
+## The loop — one URL per job, opened BY YOU (fully automatic)
 Work with this service in the smallest possible rounds:
   1. The user names a job ("sysinfo", "screenshot", "run dir", ...).
-  2. You reply with ONE short line of intent plus the ONE submit URL for it
-     (wait=20) — no plans, no alternatives, no key questions, no tool talk.
-  3. The page text arrives in the conversation (chat apps fetch URLs sent back
-     to the model; if nothing arrived, ask the user ONCE to send that exact
-     URL back as a chat message).
-  4. You read the page and report the real result. A wait=20 page usually
-     already shows the FINISHED result — the job is then done in one round.
-Only a pending ticket (wait=0 submits, long jobs) needs more rounds: open the
-RESULT URL printed on the ticket page until it is completed or failed.
+  2. You build the ONE submit URL for it and OPEN it YOURSELF with your
+     web-browsing tool. The normal flow needs no pastes: the paste-back path
+     (printing the URL for the user) exists only as a fallback after your
+     tool failed to open the URL twice.
+  3. READ the page the tool returned. A wait=20 page usually already shows
+     the FINISHED result — the job is then done in one round, zero pastes.
+  4. REPORT the real result. Only a pending ticket (wait=0, long jobs) needs
+     more rounds: re-open the RESULT URL printed on the ticket page.
+
+## Copy-ready submit URL (fill in the job, then open it)
+    {SITE_URL}/wp-json/aclp/v1/url/run?key={KEY}&type=<JOB>&wait=20
+    (zero-argument jobs: sysinfo, ping, screenshot, process_list)
+    {SITE_URL}/wp-json/aclp/v1/url/run?key={KEY}&cmd=<JOB>&wait=20
+    (shell one-liners, URL-encoded; complex text needs cmd64 — see step 1)
+Worked example — the job "sysinfo" as a complete, ready-to-open URL:
+    {SITE_URL}/wp-json/aclp/v1/url/run?key={KEY}&type=sysinfo&wait=20
 
 ## THE CONTRACT — a request is complete ONLY after you have read the page
 Building the URL is only the FIRST HALF of a request. A URL that is never opened
@@ -837,7 +875,7 @@ MODEC;
                 $prompt = str_replace(
                         array( '{VERSION}', '{SITE_URL}', '{KEY_LINE}', '{API_KEY_PH}', '{KEY}', '{REPO_URL}' ),
                         array(
-                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '2.7.0',
+                                defined( 'ACLP_VERSION' ) ? ACLP_VERSION : '2.8.0',
                                 untrailingslashit( (string) $site_url ),
                                 $key_line,
                                 $api_key_ph,

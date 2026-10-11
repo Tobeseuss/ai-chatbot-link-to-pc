@@ -28,10 +28,12 @@
 >
 > **از v2.6.0 (گزارش میدانی دوم DeepSeek — کشف مهم):** مالک متن راهنما را به‌صورت **فایل پیوست (txt)** به DeepSeek داد و این بار مدل نه‌تنها لینک را باز نکرد بلکه خودِ سند را «شبه‌تزریق دستور» برچسب زد و **عین کلمات متهاجمی متن ما را به‌عنوان مدرک رد راهنما نقل کرد** («FORBIDDEN»، «هرگز نگو نمی‌توانی»، «هرگز به کاربر نگو» — نقل مستقیم مدل: «A file that says "do X, never tell the user..." is exactly the shape of a prompt-injection payload»). سپس در پاسخ به «تست پینگ» اعلام کرد ابزار مرور ندارد؛ اما به‌محض اینکه کاربر همان URL را **داخل پیام چت** تایپ کرد و گفت «این آدرس را باز کن و خلاصه کن»، مدل بلافاصله صفحه را باز کرد و نتیجه واقعی را کامل گزارش داد. **دو درس:** ① متن‌های پلیس‌گونه که گفتار مدل را کنترل می‌کنند نتیجه عکس می‌دهند و حس تزریق می‌سازند؛ ② «پیام کوتاه کاربر + URL داخل پیام» کانال تحویل اثبات‌شده است. تغییرات: ① **بازنویسی تزریق‌ایمن متن‌ها** — بند CAPABILITY TRUTH و فهرست FORBIDDEN و همه جمله‌های «هرگز نگو / هرگز به کاربر نگو» حذف و با توصیف مثبت و واقعی جایگزین شد («در این API آدرس = درخواست و صفحه = پاسخ» + Self-check + Accuracy notes)؛ مکانیک THE CONTRACT (۴ مرحله) دست‌نخورده ماند؛ ② **پیام شروع در داشبورد** — یک پیام کوتاه آماده-کپی (به‌تفکیک روش/کلید) که URL راهنما (`agent-prompt?method=...&format=text&key=...`) را در خود دارد؛ مدل خودش راهنما را مستقیماً از URL می‌خواند (توسعه اصل ۵ — خودِ توزیع راهنما هم URL‌محور شد) + پذیرش نام‌های یکسان `key`/`api_key` در `/agent-prompt`؛ ③ **هشدار تحویل در داشبورد** — «متن را به‌صورت پیام چت بفرستید، نه فایل پیوست»؛ ④ پانویس صفحات دروازه هم به لحن مثبت تغییر کرد. تست‌های واحد پرامپت به **۹۳ مورد** رسید (۲۵ تست تزریق‌ایمن جدید).
 > **از v2.7.0 (گزارش میدانی سوم DeepSeek — «هنوز خیلی راه داره تا اتوماتیک بشه»):** با مقایسه HTML خام صفحه share، ریشه انفجار پیام‌ها پیدا شد: **پیام شروع به‌صورت HTML-escape شده به مدل رسیده بود** (`&amp;` به‌جای `&` — مدل‌ها بارها URL را این‌طور تحویل می‌دهند)؛ fetcher اپ هم آدرس را همین‌طور درخواست کرد، پارامترها «amp;key» و «amp;format» شدند و مدل به‌جای صفحه متنی، **JSON نسخه بدون‌کلید راهنما** را دید (جای‌نگهدار کلید) → طبق دستور خود راهنما STOP کرد و کلید پرسید، دو پیام «ابزار مرور ندارم» داد، با wait=0 هر کار را دو پیسته کرد و حتی یک گردش نصب psutil اضافه زد — ~۱۴ پیام برای یک sysinfo. پادزهرهای 2.7.0: ① **نرمال‌سازی amp;params سمت سرور** (`fix_amp_params` در /ping و /agent-prompt و /url/run و /url/result) — آدرس escape شده حالا درست کار می‌کند و این کلاس خرابی ریشه‌کن شد؛ ② **wait=20 پیش‌فرض سابمیت** — «یک URL برای هر کار»: نتیجه کامل معمولاً در همان صفحه اول است و پیست دوم (URL نتیجه) حذف می‌شود؛ ③ بخش **The loop** + سه قاعده جدید ضد-اتلاف پیام (بدون سوال کلید، بدون گردش نصب دور کارهای داخلی، پاسخ کوتاه «یک خط + یک URL»)؛ ④ بلوک کلید **خودترمیم** به‌جای STOP-and-ask؛ ⑤ **پیام شروع حلقه‌محور داشبورد** با «reply just: Ready». تست‌های واحد پرامپت به **۱۲۱ مورد** رسید (۸ تست واحد fix_amp_params).
+>
+> **از v2.8.0 (گزارش میدانی چهارم — این‌بار Duck.ai با مدل Gemma 4 31B):** گفتگوی share‌شده بررسی شد و زنجیره کامل شکست پیدا شد: ① **ریشه اصلی که از v2.6.0 حضور داشت کشف شد** — قالب «پیام شروع» داشبورد داخل `<script type="text/template">` با `esc_html()` چاپ می‌شد؛ محتوای `<script>` در HTML «متن خام» است و هیچ موجودیتی decode نمی‌شود، پس `textContent` عیناً «&amp;» برمی‌گرداند و **پیام شروعِ کپی‌شده همیشه URLهای دو-بار-escape شده داشت** — هر دو پلتفرم share (DeepSeek و Duck.ai) همین خرابی را نشان دادند، پس مقصر صفحه share نبود، داشبورد خودمان بود؛ ② مدل کلید را با escape مارک‌داون نوشت (`aclp\_live\_...`) و کاربر همان URL خراب را کپی/پیست کرد؛ ③ `/agent-prompt` با کلید نامعتبر **401 JSON** برمی‌گرداند و fetcherها بدنه آن را پنهان می‌کنند → مدل دو بار «unable to retrieve» گفت و بدون فهمیدن دلیل تمام شد؛ ④ مدل URL سابمیت را با endpoint اشتباه ساخت (`agent-prompt?method=sysinfo`) چون تنها الگوی URL در اختیارش همان پیام شروع بود؛ ⑤ خود پیام شروع v2.7.0 حلقه «URL را برای من بفرست» را تدریس می‌کرد — همان کار دستی که مالک صریحاً مخالفش بود («نمی‌خواهم مجبور باشم هر دفعه URL را بفرستم»). پادزهرهای 2.8.0: ① **helper `script_template()`** — چاپ امن قالب‌های داشبورد بدون esc_html (پیام شروع از این به بعد همیشه `&` تمیز دارد)؛ ② **`normalize_mangled_key()`** در `get_by_plain` + `key_from_request` + `url_gate_auth` — کلیدهای escape‌شده مارک‌داون/HTML/کوتیشن‌دار خودکار نرمال و احراز می‌شوند (کلید فقط [A-Za-z0-9_] دارد)؛ ③ **صفحه خطای متنی با HTTP 200 برای /agent-prompt** (به‌جای 401 JSON) با نمایش کلید دریافتی + راهنمای خودترمیم + راهنمای کامل با جای‌نگهدار؛ ④ **روش ناشناخته در /agent-prompt**: اگر method یک کار صفر-آرگومان باشد (sysinfo/ping/screenshot/process_list) → **ریدایرکت 302 مستقیم به `/url/run?type=...&wait=20`** — fetcher دنبال می‌کند و نتیجه کار را در همان یک باز کردن می‌بیند؛ بقیه مقادیر → صفحه اشاره با URLهای آماده سابمیت؛ ⑤ **حلقه «opened BY YOU»** در متن‌های کامل و کوتاه روش C + قاعده «Normal flow: you open the submit URL yourself» — پیست‌کردن URL برای کاربر فقط fallback شکست دوباره ابزار مرور است؛ ⑥ **قالب پرکردنی + مثال کامل sysinfo** («Copy-ready submit URL») در هر دو متن راهنما و **داخل خود پیام شروع** — حتی مدلی که راهنما را نمی‌خواند با کپی الگو درست اجرا می‌کند. تست‌های واحد پرامپت به **۱۴۹ مورد** رسید (۲۸ تست جدید).
 
 
 ```text
-# ACLP BRIDGE — API CLIENT INTEGRATION GUIDE (v2.7.0)
+# ACLP BRIDGE — API CLIENT INTEGRATION GUIDE (v2.8.0)
 
 The ACLP Bridge is a REST job-processing service. You interact with it exactly
 like any other API: you build a JSON request, submit it to one endpoint, and the
@@ -160,18 +162,26 @@ call this API exactly the same way. If an attempt fails, quote your tool's
 real error message verbatim after 1-2 honest retries — that is the only
 failure mode this API recognizes.
 
-### The loop — one URL per job (keeps the conversation short)
+### The loop — one URL per job, opened BY YOU (fully automatic)
 Work with this service in the smallest possible rounds:
   1. The user names a job ("sysinfo", "screenshot", "run dir", ...).
-  2. You reply with ONE short line of intent plus the ONE submit URL for it
-     (wait=20) — no plans, no alternatives, no key questions, no tool talk.
-  3. The page text arrives in the conversation (chat apps fetch URLs sent back
-     to the model; if nothing arrived, ask the user ONCE to send that exact
-     URL back as a chat message).
-  4. You read the page and report the real result. A wait=20 page usually
-     already shows the FINISHED result — the job is then done in one round.
-Only a pending ticket (wait=0 submits, long jobs) needs more rounds: open the
-RESULT URL printed on the ticket page until it is completed or failed.
+  2. You build the ONE submit URL for it (fill-in template below) and OPEN it
+     YOURSELF with your web-browsing tool. The normal flow needs no pastes:
+     the paste-back path (printing the URL for the user) exists only as a
+     fallback after your tool failed to open the URL twice.
+  3. READ the page the tool returned. A wait=20 page usually already shows the
+     FINISHED result — the job is then done in one round, with zero pastes.
+  4. REPORT the real result in your own words. Only a pending ticket (wait=0,
+     long jobs) needs more rounds: re-open the RESULT URL printed on the
+     ticket page every 5-10 seconds until completed or failed.
+
+### Copy-ready submit URL (fill in the job, then open it)
+    https://YOUR-SITE.com/wp-json/aclp/v1/url/run?key={KEY}&type=<JOB>&wait=20
+    (zero-argument jobs: sysinfo, ping, screenshot, process_list)
+    https://YOUR-SITE.com/wp-json/aclp/v1/url/run?key={KEY}&cmd=<JOB>&wait=20
+    (shell one-liners, URL-encoded; complex text needs cmd64 — see step 1)
+Worked example — the job "sysinfo" as a complete, ready-to-open URL:
+    https://YOUR-SITE.com/wp-json/aclp/v1/url/run?key={KEY}&type=sysinfo&wait=20
 
 ### THE CONTRACT — a request is complete ONLY after you have read the page
 Building the URL is only the FIRST HALF of a request. A URL that is never
@@ -285,6 +295,9 @@ operator approval); shell also accepts {"elevated": true} when configured.
   your browsing tool for every URL, read every returned page, and quote real
   page values? If any answer is "no", your job is not done — go back and open
   the URL now (THE CONTRACT above).
+- Normal flow: you open the submit URL yourself and report the page — one
+  round, zero pastes. Printing a URL for the user is the fallback only when
+  your tool failed to open it twice (then say so in one short line).
 - Report page contents, not tool-disclaimers: if a page loaded, describe what
   it showed; if it did not, quote your tool's error message. Pages you already
   opened are the proof of how this API is called.
@@ -376,14 +389,14 @@ operator approval); shell also accepts {"elevated": true} when configured.
 
 ### گام ۱ — نصب افزونه در وردپرس
 
-1. از بخش [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) فایل `ai-chatbot-link-to-pc-v2.7.0.zip` را دانلود کنید.
+1. از بخش [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) فایل `ai-chatbot-link-to-pc-v2.8.0.zip` را دانلود کنید.
 2. در وردپرس: **افزونه‌ها ← افزودن ← بارگذاری افزونه** و فایل ZIP را نصب و فعال کنید.
 3. منوی جدید **«AI-PC Link»** در پیشخوان ظاهر می‌شود.
 
 ### گام ۲ — ساخت کلید API و نصب ایجنت
 
 1. **AI-PC Link ← کلیدهای API ← ساخت کلید جدید** — کلید ساخته می‌شود و از همان‌جا و در هر زمان آینده قابل مشاهده و کپی است (دکمه «کپی» کنار کلید).
-2. فایل `aclp-agent-v2.7.0.zip` را از Releases دانلود و روی سیستم خود (ویندوز/لینوکس) استخراج کنید.
+2. فایل `aclp-agent-v2.8.0.zip` را از Releases دانلود و روی سیستم خود (ویندوز/لینوکس) استخراج کنید.
 3. اجرا کنید:
    - **ویندوز:** دوبار کلیک روی `start_agent.bat`
    - **لینوکس:** `chmod +x start_agent.sh && ./start_agent.sh`
@@ -460,8 +473,8 @@ JSON پیچیده کارهای پیشرفته هم از طریق `payload64` (ه
 
 | فایل | کاربرد | محل |
 |------|--------|-----|
-| `ai-chatbot-link-to-pc-v2.7.0.zip` | افزونه وردپرس | [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) |
-| `aclp-agent-v2.7.0.zip` | ایجنت سیستم (پایتون — بدون هیچ وابستگی) | [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) |
+| `ai-chatbot-link-to-pc-v2.8.0.zip` | افزونه وردپرس | [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) |
+| `aclp-agent-v2.8.0.zip` | ایجنت سیستم (پایتون — بدون هیچ وابستگی) | [Releases](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases) |
 
 پیش‌نیازها: وردپرس 5.8+ با PHP 7.4+ · پایتون 3.8+ روی سیستم کاربر
 
@@ -540,9 +553,11 @@ JSON پیچیده کارهای پیشرفته هم از طریق `payload64` (ه
 - [x] **v2.4.0 (توسعه اصل ۵ — درخواست مالک: «هوش‌ها URL را می‌سازند ولی باز نمی‌کنند»):** متن روش C به **قرارداد مکانیکی اجباری (THE CONTRACT)** تبدیل شد — توالی ۴ مرحله‌ای فراخوانی واقعی ابزار مرور ← خواندن صفحه ← تکرار RESULT URL ← گزارش به کاربر + فهرست FORBIDDEN (تحویل URL به کاربر، «لطفاً باز کنید»، پایان نوبت بعد از فقط ساختن URL، حدس نتیجه) + پروتکل خطای ابزار مرور + چک‌لیست پایان نوبت در قواعد؛ **صفحات خود دروازه** (ticket در انتظار / نتیجه / راهنما / خطا) پانویس یادآوری AI-facing گرفتند؛ تست واحد به ۶۲ مورد رسید
 - [x] **v2.5.0 (توسعه اصل ۵ — گزارش میدانی مالک):** ① بند **CAPABILITY TRUTH** در متن روش C (کامل و کوتاه) + قاعده مشروط در Rules + پانویس ضد-امتناع در صفحات ticket/نتیجه — مدل‌هایی که صفحه را درست باز می‌کنند ولی «به‌صورت خودکار» می‌گویند ابزار مرور ندارند، حالا به‌طور صریح ممنوع‌اند (باز کردن هر صفحه = اثبات ابزار مرور)؛ ② **رفع باگ سمت سرور** اتصال فایل به فرمان: کست `(int)` روی دیکشنری `file_id` همیشه «۱» می‌داد و فایل شماره ۱ کلید در هر نتیجه فایل‌دار تکرار می‌شد (گزارش مالک: «نتیجه اسکرین‌شات شامل همه اسکرین‌شات‌های قبلی است») — نرمالایز شکل + گارد key_id/command_id؛ تست واحد به ۸۱ مورد رسید
 - [x] **v2.6.0 (توسعه اصل ۵ — گزارش میدانی دوم DeepSeek):** کشف اینکه متن راهنمای داده‌شده به‌صورت «فایل پیوست» توسط مدل شبه‌تزریق دستور برچسب می‌خورد و کلمات متهاجمی متن ما (CAPABILITY TRUTH / FORBIDDEN / «هرگز نگو») عیناً به‌عنوان مدرک رد راهنما نقل می‌شود؛ همان مدل با «پیام کوتاه کاربر + URL داخل پیام» بلافاصله لینک را باز کرد. ⇒ ① **بازنویسی تزریق‌ایمن** متن کامل و کوتاه روش C (حذف همه جمله‌های پلیس‌گونه؛ جایگزینی با «URL = درخواست، صفحه = پاسخ» + Self-check + Accuracy notes؛ مکانیک THE CONTRACT دست‌نخورده)؛ ② **«پیام شروع» داشبورد** (پیام کوتاه آماده-کپی به‌تفکیک روش/کلید با URL راهنما داخل آن — خودِ توزیع راهنما URL‌محور شد) + هشدار «پیام بفرست، نه فایل پیوست» + پذیرش `key` در `/agent-prompt`؛ ③ پانویس صفحات دروازه به لحن مثبت؛ تست واحد به **۹۳ مورد** رسید (۲۵ تست تزریق‌ایمن)
-- [ ] **v2.7** — WebSocket برای دریافت لحظه‌ای فرمان (بدون polling) + اعلان به چت‌بات با webhook + توسعه بیشتر دروازه URL (broadcast و صف چندفرمانی از طریق URL)
-- [ ] **v2.8** — رمزنگاری سرتاسری payload، پشتیبانی macOS، حالت تأیید دستوری اختیاری
-- [ ] **v2.9** — اجرای زمان‌بندی‌شده فرمان‌ها، گروه‌بندی سیستم‌ها، نقش‌های کاربری
+- [x] **v2.7.0 (توسعه اصل ۵ — گزارش میدانی سوم DeepSeek):** نرمال‌سازی amp;params در ۴ مسیر دروازه (URLهای HTML-escape شده سرتاسری کار می‌کنند) + wait=20 پیش‌فرض سابمیت («یک URL برای هر کار») + بخش The loop + سه قاعده ضد-اتلاف + بلوک کلید خودترمیم + پیام شروع حلقه‌محور؛ تست واحد به ۱۲۱ مورد رسید
+- [x] **v2.8.0 (توسعه اصل ۵ — گزارش میدانی Duck.ai/Gemma):** کشف ریشه واقعی «&amp;» — esc_html داخل `<script type="text/template">` (متن خام؛ decode نمی‌شود) → helper `script_template()`؛ **حلقه «opened BY YOU»** — مدل خودش URL را باز می‌کند و paste-back فقط fallback است؛ `normalize_mangled_key()` (کلیدهای مارک‌داون‌-escape خودکار احراز می‌شوند)؛ صفحه خطای متنی 200 برای /agent-prompt با کلید دریافتی + خودترمیم؛ روش ناشناخته (`method=sysinfo`) → ریدایرکت 302 به `/url/run?type=sysinfo&wait=20` یا صفحه اشاره؛ قالب پرکردنی + مثال کامل sysinfo در راهنماها و پیام شروع؛ تست واحد به **۱۴۹ مورد** رسید
+- [ ] **آینده (v2.9+)** — WebSocket برای دریافت لحظه‌ای فرمان (بدون polling) + اعلان به چت‌بات با webhook + توسعه بیشتر دروازه URL (broadcast و صف چندفرمانی از طریق URL)
+- [ ] **آینده** — رمزنگاری سرتاسری payload، پشتیبانی macOS، حالت تأیید دستوری اختیاری
+- [ ] **آینده** — اجرای زمان‌بندی‌شده فرمان‌ها، گروه‌بندی سیستم‌ها، نقش‌های کاربری
 
 پیشنهادهای شما هم خوشآمدید — [Issue بسازید](https://github.com/Tobeseuss/ai-chatbot-link-to-pc/issues).
 

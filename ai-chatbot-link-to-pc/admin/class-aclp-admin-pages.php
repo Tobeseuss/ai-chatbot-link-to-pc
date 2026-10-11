@@ -32,6 +32,24 @@ class ACLP_Admin_Pages {
                 wp_nonce_field( 'aclp_action', '_aclp_nonce' );
         }
 
+        /**
+         * چاپ قالب <script type="text/template"> به‌صورت امن (v2.8.0).
+         *
+         * محتوای <script> در HTML «متن خام» است: parser هیچ موجودیتی را decode
+         * نمی‌کند. esc_html() روی این محتوا «&amp;» واقعی (دو-بار-escape) تولید
+         * می‌کرد که در textContent و در نتیجه در پیام شروعِ کپی‌شده باقی می‌ماند —
+         * ریشه گزارش‌های میدانی DeepSeek #3 و Duck.ai. تنها ریسک واقعی در متن خام،
+         * رشته </script است که همین‌جا خنثی می‌شود.
+         *
+         * @param string $id   شناسه المنت.
+         * @param string $text محتوای قالب.
+         */
+        private static function script_template( $id, $text ) {
+                echo '<script type="text/template" id="' . esc_attr( $id ) . '">'
+                        . str_replace( '</script', '<\/script', (string) $text ) . '</script>';
+        }
+
+
         /* =====================================================================
          * داشبورد
          * =================================================================== */
@@ -109,8 +127,11 @@ class ACLP_Admin_Pages {
 
                 // چهار قالب خام (کامل / A / B / C) با جای‌نگهدار کلید — جاوااسکریپت بر اساس
                 // روش انتخابی قالب را برمی‌دارد و کلید انتخابی را جای‌گذاری می‌کند.
+                // v2.8.0: محتوای <script> در HTML «متن خام» است — موجودیت‌ها decode
+                // نمی‌شوند؛ esc_html() اینجا «&amp;» واقعی تولید می‌کرد که در پیام شروعِ
+                // کپی‌شده می‌ماند (ریشه گزارش‌های میدانی DeepSeek #3 و Duck.ai).
                 foreach ( array_keys( $methods ) as $m_key ) {
-                        echo '<script type="text/template" id="' . esc_attr( $template_id . '-' . $m_key ) . '">' . esc_html( ACLP_Utils::agent_prompt( '', '', $m_key ) ) . '</script>';
+                        self::script_template( $template_id . '-' . $m_key, ACLP_Utils::agent_prompt( '', '', $m_key ) );
                 }
                 echo '<pre id="' . esc_attr( $prompt_id ) . '" class="aclp-json" style="max-height:340px;overflow:auto;direction:ltr;text-align:left">' . esc_html( ACLP_Utils::agent_prompt() ) . '</pre>';
 
@@ -129,23 +150,28 @@ class ACLP_Admin_Pages {
                 $starter_id   = 'aclp-starter-text';
                 $starter_tpl  = 'aclp-starter-template';
                 $starter_base = untrailingslashit( home_url() ) . '/wp-json/aclp/v1/agent-prompt';
-                // v2.7.0 — پیام شروع حلقه‌محور: قرارداد «یک URL برای هر کار» + ممنوعیت
-                // سوال کلید + پاسخ کوتاه. (درس گفتگوی سوم DeepSeek: پیام بلندِ فقط-راهنما
-                // باعث شد مدل کلید بپرسد و دو پیام «ابزار مرور ندارم» بفرستد.)
+                // v2.7.0 — پیام شروع حلقه‌محور. v2.8.0 (گزارش میدانی Duck.ai — Gemma):
+                // ① حلقه به «مدل خودش URL را باز می‌کند» flipped شد — نسخه قبلی
+                // «URL را برای من بفرست» را تدریس می‌کرد و همان کار دستی را که مالک
+                // مخالفش بود نهادینه کرده بود؛ ② مثال کامل سابمیت (type=sysinfo) داخل
+                // خود پیام شروع قرار گرفت تا حتی مدلی که راهنما را نمی‌خواند با کپیِ
+                // الگو درست اجرا کند (مدل ساختن URL را از روی الگو یاد می‌گیرد).
                 $starters     = array(
                         'full' => "ACLP Bridge (control channel to my PC). Open this URL now with your web-browsing tool and read the page — that page is your integration guide:\n"
                                 . $starter_base . "?method=full&format=text&key=PASTE_YOUR_REAL_API_KEY_HERE\n"
-                                . "The key is already inside every URL in that guide. The working loop after reading it: I name a job, you perform it per the guide and report the real result — reply with one short line plus the one request, never ask me to confirm the key, never narrate your tool limitations, no install rounds around built-in jobs. After reading the guide, reply just: Ready.",
+                                . "The key is already inside every URL in that guide. The working loop after reading it: I name a job, you perform it per the guide (in URL mode that means you open the submit URL yourself and read the page) and report the real result — one short line, never ask me to confirm the key, never narrate your tool limitations, no install rounds around built-in jobs. After reading the guide, reply just: Ready.",
                         'a'    => "ACLP Bridge (control channel to my PC). Open this URL now and read the page — that page is your integration guide (REST with Authorization header):\n"
                                 . $starter_base . "?method=a&format=text&key=PASTE_YOUR_REAL_API_KEY_HERE\n"
                                 . "The key is already inside every example in that guide. The working loop: I name a job, you send the REST request per the guide and report the real response — one short line plus the one request, never ask me to confirm the key. After reading the guide, reply just: Ready.",
                         'b'    => "Method B is for text-only models: there is no starter URL here. Copy the short MODE B text above and send it as a normal chat message; then run the terminal commands the model prints, one at a time, and paste the JSON outputs back to it.",
                         'c'    => "ACLP Bridge (control channel to my PC). Open this URL with your web-browsing tool and read the page — that page is your integration guide (in this API opening a URL IS the request and the returned page IS the response):\n"
                                 . $starter_base . "?method=c&format=text&key=PASTE_YOUR_REAL_API_KEY_HERE\n"
-                                . "The key is already inside every URL in that guide. The working loop: I name a job, you reply with ONE short line plus the ONE submit URL for it (wait=20), I send that URL back to you, its page text arrives here, and you report the real result. Never ask me for the key, never narrate tool limitations, no install rounds around built-in jobs. After reading the guide, reply just: Ready.",
+                                . "Working loop — fully automatic, I never paste URLs for you: I name a job, you build the submit URL exactly like the guide shows, you open it YOURSELF with your web-browsing tool, you read the page, you report the real result. Complete worked example for the job 'sysinfo' (same shape for every job): "
+                                . str_replace( '/wp-json/aclp/v1/agent-prompt', '/wp-json/aclp/v1/url/run', $starter_base ) . "?type=sysinfo&wait=20&key=PASTE_YOUR_REAL_API_KEY_HERE\n"
+                                . "Only if your tool fails to open a URL twice, print that URL and ask me to paste it back. Never ask me for the key (it is already inside every URL), never narrate tool limitations, no install rounds around built-in jobs. After reading the guide, reply just: Ready.",
                 );
                 foreach ( $starters as $m_key => $m_text ) {
-                        echo '<script type="text/template" id="' . esc_attr( $starter_tpl . '-' . $m_key ) . '">' . esc_html( $m_text ) . '</script>';
+                        self::script_template( $starter_tpl . '-' . $m_key, $m_text );
                 }
                 echo '<h3 style="margin-top:16px">🚀 پیام شروع (روش توصیه‌شده — همان الگویی که در آزمایش DeepSeek بلافاصله جواب داد)</h3>';
                 echo '<p class="description">روش و کلید را از انتخابگر بالا عوض کنید؛ این پیام هم به‌صورت خودکار ساخته می‌شود. کافی است همین پیام کوتاه را در چت بفرستید — مدل خودش راهنمای کامل را از آدرس داخل پیام می‌خواند (کلید هم داخل آدرس است).</p>';

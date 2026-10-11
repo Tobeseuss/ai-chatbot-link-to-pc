@@ -182,13 +182,15 @@ class ACLP_REST {
                         $qkey = trim( (string) $request->get_param( 'api_key' ) );
                 }
                 if ( '' !== $qkey ) {
+                        // v2.8.0: کلیدِ escape‌شده مارک‌داون نرمال می‌شود (توسعه اصل ۵).
+                        $qkey = ACLP_Utils::normalize_mangled_key( $qkey );
                         $request->set_param( 'api_key', $qkey );
                 }
 
                 $key = ACLP_Auth::authenticate( $request );
                 if ( is_wp_error( $key ) ) {
                         if ( 'text' === $format ) {
-                                return self::url_gate_error_from_wp_error( $key, 'text' );
+                                return self::url_gate_error_from_wp_error( $key, 'text', $qkey );
                         }
                         return $key;
                 }
@@ -243,27 +245,97 @@ class ACLP_REST {
         public static function route_agent_prompt( $request ) {
                 // v2.7.0 (توسعه اصل ۵): جبران URLهای HTML-escape شده (&amp; در پیام مدل).
                 ACLP_Utils::fix_amp_params( $request );
+                $format = strtolower( trim( (string) $request->get_param( 'format' ) ) );
+
+                // v2.8.0 (گزارش میدانی Duck.ai — Gemma، share/0cfda628): کلیدِ escape‌شده
+                // مارک‌داون (aclp\_live\_...) نرمال می‌شود؛ اگر کلیدِ پاک‌شده معتبر باشد،
+                // همان نسخه پاک داخل راهنما جای‌گذاری می‌شود تا همه URLهای بعدی سالم باشند.
                 $api_key = (string) $request->get_param( 'api_key' );
                 if ( '' === $api_key ) {
                         // v2.6.0 — نام‌های یکسان با دروازه URL: key/api_key هر دو پذیرفته
                         // می‌شوند تا پیام شروع داشبورد بتواند مثل بقیه آدرس‌ها ?key= بگذارد.
                         $api_key = (string) $request->get_param( 'key' );
                 }
+                $api_key_raw = $api_key;
+                $api_key     = ACLP_Utils::normalize_mangled_key( $api_key );
+                $key_valid   = false;
                 if ( '' !== $api_key ) {
-                        $check = ACLP_API_Keys::get_by_plain( $api_key );
-                        if ( ! $check ) {
-                                return new WP_Error( 'aclp_invalid_key', 'کلید API نامعتبر است.', array( 'status' => 401 ) );
-                        }
+                        $key_valid = (bool) ACLP_API_Keys::get_by_plain( $api_key );
                 }
+
                 $method  = strtolower( trim( (string) $request->get_param( 'method' ) ) );
                 $method  = str_replace( array( 'mode_', 'method_' ), '', $method );
                 $is_mode = in_array( substr( $method, 0, 1 ), array( 'a', 'b', 'c' ), true );
-                $prompt  = $is_mode
+
+                // v2.8.0 — روش ناشناخته (مثل method=sysinfo در گزارش Duck.ai: مدل URL
+                // سابمیت را با endpoint اشتباه ساخت): به‌جای راهنمای کامل، صفحه اشاره یا
+                // ریدایرکت مستقیم به URL سابمیت درست — مدل خودش URL درست را می‌بیند.
+                $zero_arg_jobs = array( 'sysinfo', 'ping', 'screenshot', 'process_list' );
+                if ( '' !== $method && ! $is_mode && 'full' !== $method ) {
+                        $gate_base = untrailingslashit( home_url() ) . '/wp-json/aclp/v1';
+                        if ( 'text' === $format && $key_valid && in_array( $method, $zero_arg_jobs, true ) ) {
+                                // ریدایرکت ۳۰۲ — fetcherها دنبال می‌کنند و مستقیم صفحه نتیجه
+                                // کار را می‌بینند (نتیجه در همان یک باز کردن).
+                                $target = $gate_base . '/url/run?key=' . rawurlencode( $api_key )
+                                        . '&type=' . rawurlencode( $method ) . '&wait=20';
+                                header( 'Content-Type: text/plain; charset=utf-8' );
+                                header( 'Location: ' . $target );
+                                echo "ACLP BRIDGE — method={$method} is a job, not a guide mode.\n"
+                                        . "Redirecting to the submit URL (this page IS the response):\n" . $target . "\n";
+                                exit;
+                        }
+                        if ( 'text' === $format ) {
+                                $key_val = $key_valid ? $api_key : 'PASTE_YOUR_REAL_API_KEY_HERE';
+                                header( 'Content-Type: text/plain; charset=utf-8' );
+                                echo "ACLP URL GATE — method=<JOB> is not a guide mode\n"
+                                        . str_repeat( '-', 62 ) . "\n"
+                                        . "Received: method={$method}\n\n"
+                                        . "Guide modes (one short page each — open with your web tool):\n"
+                                        . "  {$gate_base}/agent-prompt?method=a&format=text&key={$key_val}  (REST + Bearer header)\n"
+                                        . "  {$gate_base}/agent-prompt?method=b&format=text&key={$key_val}  (text-only model, terminal relay)\n"
+                                        . "  {$gate_base}/agent-prompt?method=c&format=text&key={$key_val}  (browsing model — you open URLs)\n\n"
+                                        . "To RUN the job \"{$method}\" you do not need a guide page — open this URL:\n"
+                                        . "  {$gate_base}/url/run?key={$key_val}&type={$method}&wait=20   (zero-arg jobs: sysinfo, ping, screenshot, process_list)\n"
+                                        . "  {$gate_base}/url/run?key={$key_val}&cmd=<command>&wait=20    (shell one-liners, URL-encoded)\n"
+                                        . "  {$gate_base}/url/run?key={$key_val}&cmd64=<Base64>&wait=20   (complex commands)\n\n"
+                                        . "Open the fitting URL with your web-browsing tool and read the page —\n"
+                                        . "in this API the page the URL returns IS the response.\n";
+                                exit;
+                        }
+                        return rest_ensure_response( array(
+                                'ok'      => false,
+                                'version' => ACLP_VERSION,
+                                'hint'    => 'method=<JOB> is not a guide mode. Guide modes: method=a|b|c. To run a job open /url/run?key=...&type=<zero-arg job: sysinfo|ping|screenshot|process_list>&wait=20 or &cmd=<command>&wait=20.',
+                        ) );
+                }
+
+                if ( '' !== $api_key && ! $key_valid ) {
+                        // v2.8.0 — صفحه خطای HTTP 200 در حالت text (fetcherها بدنه 401 JSON
+                        // را پنهان می‌کنند و مدل هرگز نمی‌فهمد چرا شکست — همان‌که در گفتگوی
+                        // Duck.ai دو بار «unable to retrieve» شد). راهنما با جای‌نگهدار هم
+                        // ضمیمه می‌شود تا مدل بتواند خودترمیم کند.
+                        if ( 'text' === $format ) {
+                                $hint = "ACLP BRIDGE — WARNING: the API key in your URL did not match any key.\n"
+                                        . str_repeat( '-', 62 ) . "\n"
+                                        . 'Key received: ' . substr( $api_key_raw, 0, 60 ) . "\n"
+                                        . "ACLP keys contain only A-Z a-z 0-9 and _ ; backslashes, quotes and\n"
+                                        . "HTML-escapes are stripped automatically before checking — if the key\n"
+                                        . "still does not match, copy it fresh from the starter message or from\n"
+                                        . "WordPress admin -> AI-PC Link -> API Keys and open the URL again.\n"
+                                        . "Self-heal: take the key from ANY other ACLP URL in this conversation.\n\n"
+                                        . "The guide below uses a placeholder wherever the key belongs.\n\n";
+                                header( 'Content-Type: text/plain; charset=utf-8' );
+                                echo $hint . ACLP_Utils::agent_prompt( '', '' );
+                                exit;
+                        }
+                        return new WP_Error( 'aclp_invalid_key', 'کلید API نامعتبر است.', array( 'status' => 401 ) );
+                }
+
+                $prompt = $is_mode
                         ? ACLP_Utils::agent_prompt( '', $api_key, substr( $method, 0, 1 ) )
                         : ACLP_Utils::agent_prompt( '', $api_key );
 
                 // خروجی صفحه متنی ساده (دوستدار ایجنت‌های مرورگری — فقط باز کردن URL).
-                $format = strtolower( trim( (string) $request->get_param( 'format' ) ) );
                 if ( 'text' === $format ) {
                         header( 'Content-Type: text/plain; charset=utf-8' );
                         echo $prompt;
@@ -274,7 +346,7 @@ class ACLP_REST {
                         'ok'        => true,
                         'version'   => ACLP_VERSION,
                         'method'    => $is_mode ? substr( $method, 0, 1 ) : 'full',
-                        'usage'     => 'Feed this text to any AI/LLM agent so it can use the PC bridge. Pass ?api_key=... to embed a real key, or leave it out so the agent asks the user. v2.3.0: add &method=a|b|c for the short single-mode guide and &format=text for a plain-text page you can just open in a browser. v2.7.0: HTML-escaped URLs (&amp; for &) are understood too.',
+                        'usage'     => 'Feed this text to any AI/LLM agent so it can use the PC bridge. Pass ?api_key=... to embed a real key, or leave it out so the agent asks the user. v2.3.0: add &method=a|b|c for the short single-mode guide and &format=text for a plain-text page you can just open in a browser. v2.7.0: HTML-escaped URLs (&amp; for &) are understood too. v2.8.0: markdown-escaped keys (backslash-escaped underscores) are normalized automatically; unknown method=<JOB> values serve a pointer page or redirect straight to the /url/run submit URL.',
                         'docs_url'  => untrailingslashit( (string) ACLP_Settings::get( 'github_repo_url' ) ) . '/blob/main/docs/AGENT-API.md',
                         'repo_url'  => untrailingslashit( (string) ACLP_Settings::get( 'github_repo_url' ) ),
                         'prompt'    => $prompt,
@@ -953,6 +1025,9 @@ class ACLP_REST {
                                 '',
                         );
                 }
+                // v2.8.0 (گزارش میدانی Duck.ai): کلیدِ escape‌شده مارک‌داون نرمال می‌شود —
+                // هم برای احراز و هم تا RESULT URLهای چاپ‌شده روی صفحات دروازه کلیدِ پاک داشته باشند.
+                $raw = ACLP_Utils::normalize_mangled_key( $raw );
                 // احراز هویت استاندارد (شامل محدودیت نرخ + touch) روی همان کلید.
                 $request->set_param( 'api_key', $raw );
                 return array( ACLP_Auth::authenticate( $request ), $raw );
@@ -1005,7 +1080,7 @@ class ACLP_REST {
          * @param string   $format text|json.
          * @return WP_Error|null
          */
-        private static function url_gate_error_from_wp_error( $err, $format ) {
+        private static function url_gate_error_from_wp_error( $err, $format, $raw_key = '' ) {
                 $code   = $err->get_error_code();
                 $status = 401;
                 $data   = $err->get_error_data();
@@ -1019,6 +1094,15 @@ class ACLP_REST {
                         'aclp_rate_limited' => 'rate limit reached — wait about a minute and re-open this URL.',
                 );
                 $msg = isset( $map[ $code ] ) ? $map[ $code ] : $err->get_error_message();
+                // v2.8.0 (گزارش میدانی Duck.ai): کلید دریافتی روی صفحه خطا نمایش داده می‌شود
+                // تا مدل خودش ببیند چه چیزی رسیده (مثلاً aclp\_live\_ با بک‌اسلش مارک‌داون).
+                if ( 'aclp_invalid_key' === $code && '' !== $raw_key ) {
+                        $msg .= "\nDETAILS: key received: \"" . substr( $raw_key, 0, 60 ) . "\"\n"
+                                . "ACLP keys contain only A-Z a-z 0-9 and _ ; backslashes, quotes and\n"
+                                . "HTML-escapes are stripped automatically before checking — if the key\n"
+                                . "still does not match, copy it fresh from the starter message or from\n"
+                                . "WordPress admin -> AI-PC Link -> API Keys.";
+                }
                 return self::url_gate_error( $code, $msg, $status, $format );
         }
 
@@ -1290,7 +1374,7 @@ class ACLP_REST {
 
                 list( $key, $raw_key ) = self::url_gate_auth( $request );
                 if ( is_wp_error( $key ) ) {
-                        return self::url_gate_error_from_wp_error( $key, $format );
+                        return self::url_gate_error_from_wp_error( $key, $format, $raw_key );
                 }
 
                 // تعیین گره مقصد — همان قواعد POST /commands (تک‌گره؛ broadcast اینجا نیست).
@@ -1401,7 +1485,7 @@ class ACLP_REST {
 
                 list( $key, $raw_key ) = self::url_gate_auth( $request );
                 if ( is_wp_error( $key ) ) {
-                        return self::url_gate_error_from_wp_error( $key, $format );
+                        return self::url_gate_error_from_wp_error( $key, $format, $raw_key );
                 }
 
                 if ( '' === $ticket ) {

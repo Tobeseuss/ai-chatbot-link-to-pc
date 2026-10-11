@@ -3,7 +3,7 @@
 > **Persian note (برای کاربر):** این سند عمداً به انگلیسی نوشته شده است، چون مخاطب اصلی آن چت‌بات‌ها و ایجنت‌های هوش مصنوعی هستند که مستندات انگلیسی را قابل‌اعتمادتر پارس می‌کنند. راهنمای فارسی کاربر: `docs/USER-GUIDE.fa.md`. این فایل را در system prompt یا ابزار knowledge چت‌بات خود قرار دهید تا بداند چگونه با سیستم کاربر تعامل کند.
 
 Base URL: `https://YOUR-SITE.com/wp-json/aclp/v1`
-Plugin version: 2.6.0 · API namespace: `aclp/v1`
+Plugin version: 2.8.0 · API namespace: `aclp/v1`
 
 > **v2.6.0 — INJECTION-SAFE GUIDE REWRITE + STARTER MESSAGE (DeepSeek field report #2,
 > owner shared the conversation):** the owner handed the guide to DeepSeek as a **FILE
@@ -237,6 +237,21 @@ Models frequently emit `&amp;` in chat output and fetchers pass it through liter
 failure made the model see the PLACEHOLDER-key guide (the `amp;key` param was invisible) and obey
 the old "STOP and ask the user" line. The no-key guide now self-heals instead (take the key from
 any ACLP URL in the conversation).
+**v2.8.0 — Duck.ai field report (Gemma 4 31B):** three more self-heal paths, all principle-5:
+(1) **Markdown-escaped keys are normalized** — models often write the key with escaped
+underscores (`aclp\_live\_...`) and the user pastes that URL back; `normalize_mangled_key()`
+strips every character outside `[A-Za-z0-9_]` before checking (in `get_by_plain`,
+`key_from_request` and `url_gate_auth`), so mangled keys authenticate and the CLEAN key is what
+gets embedded in the guide and on gate pages.
+(2) **Invalid key + `format=text` now returns an HTTP 200 text page** (not a bare 401 JSON,
+which fetchers hide — the model then reports "unable to retrieve" without ever learning why).
+The page echoes the key as received, explains the character rule, gives the self-heal path and
+appends the full placeholder-key guide.
+(3) **Unknown `method=<JOB>` no longer falls back to the full guide**: zero-argument jobs
+(sysinfo / ping / screenshot / process_list) with a valid key get a **302 redirect straight to
+`/url/run?key=...&type=<JOB>&wait=20`** — a fetcher follows it and lands on the real job result
+in one open; anything else gets a pointer page printing the three ready submit-URL shapes and
+the three guide-mode URLs.
 MODE C URLs inside the returned text carry the key **pre-embedded** — the agent never has to
 add credentials to a URL (owner rule since v2.3.0).
 The `prompt` field is a ready-made, professional instruction block covering **three modes**:
@@ -335,7 +350,7 @@ curl or wget **without any auth header**. Use it when you cannot set custom head
 you want to hand a file to the user/another AI as a plain link. Links stay valid while the
 file exists (retention policy governs deletion).
 
-### 3.10 `GET /url/run` + `GET /url/result` — URL GATE (v2.0.0, Principle 5; Base64 since v2.1.0; mandatory-open contract since v2.4.0; capability truth since v2.5.0; one-URL-per-job wait=20 default + entity-proof params since v2.7.0)
+### 3.10 `GET /url/run` + `GET /url/result` — URL GATE (v2.0.0, Principle 5; Base64 since v2.1.0; mandatory-open contract since v2.4.0; capability truth since v2.5.0; one-URL-per-job wait=20 default + entity-proof params since v2.7.0; self-open loop since v2.8.0)
 
 For agents that say *"I cannot use APIs"* but **can open and browse a web page**: put the
 command at the end of the URL, open it, and **the opened page shows the plain-text job
@@ -377,7 +392,11 @@ plain `cmd` (URL-encoded).
 GET https://YOUR-SITE.com/wp-json/aclp/v1/url/run?key=aclp_live_xxx&cmd=echo%20hello&wait=15
 ```
 
-**v2.7.0 — one URL per job:** submit with **`wait=20` by default** — the page waits up to
+**v2.8.0 — the loop is opened BY YOU:** you build the submit URL and open it yourself with
+your own browsing tool; printing a URL for the user is ONLY the fallback after your tool failed
+to open it twice. Copy-ready fill-in templates + a worked sysinfo example live in the guide and
+in the dashboard starter message. **v2.7.0 — one URL per job:** submit with **`wait=20` by
+default** — the page waits up to
 ~20s and usually already contains the FINISHED result, so a single URL completes the job
 (no ticket round, one paste per job). Use **`wait=0` only for jobs that can outlive ~20s**
 (big installs, big file transfers) — the page then answers instantly with the ticket and you

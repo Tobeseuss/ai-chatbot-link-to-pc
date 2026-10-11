@@ -334,3 +334,22 @@ Stage Summary:
 - Release v2.7.0: https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases/tag/v2.7.0
 - گام مالک: ① نصب ZIP افزونه 2.7.0 روی سایت ② گفتگوی کاملاً تازه + فقط «پیام شروع» جدید داشبورد (روش C + کلید) ③ بعد از Ready فقط نام کار را بنویسید («sysinfo») — مدل باید فقط یک URL بدهد (wait=20)؛ همان را پیست کنید؛ نتیجه کامل در همان صفحه است. URLهایی که مدل با &amp; بدهد هم حالا سمت سرور درست خوانده می‌شوند
 - قاعده اصل ۵ ادامه دارد
+
+---
+
+## جلسه ۱۵ (v2.8.0) — گزارش میدانی چهارم: Duck.ai/Gemma (share/0cfda628) — ریشه واقعی «&amp;» + حلقه «opened BY YOU»
+
+- بازبینی کامل گفتگو با agent-browser: «Ready.» ← کار «sysinfo» ← مدل URL غلط ساخت (`agent-prompt?method=sysinfo...` — endpoint راهنما به‌جای دروازه) با کلید escape مارک‌داون (`aclp\_live\_...`) و آن را به‌جای باز کردن چاپ کرد ← پیست کاربر ← 401 JSON نامرئی → دو بار «unable to retrieve» ← بن‌بست (۵ پیام، صفر نتیجه)
+- **کشف بزرگ:** قالب‌های داشبورد داخل `<script type="text/template">` با `esc_html()` چاپ می‌شدند؛ محتوای script در HTML «متن خام» است و decode نمی‌شود → `textContent` عیناً «&amp;» برمی‌گرداند → پیام شروعِ کپی‌شده از v2.6.0 همیشه دو-بار-escape بود؛ هر دو پلتفرم share (DeepSeek #3 و Duck.ai) همین را حفظ کرده بودند — مقصر share نبود، داشبورد بود
+- فیکس‌ها: ① helper `ACLP_Admin_Pages::script_template()` (چاپ بدون esc_html + خنثی‌سازی `</script`)؛ ② `ACLP_Utils::normalize_mangled_key()` — حذف نویسه‌های خارج [A-Za-z0-9_] از کلید در `get_by_plain` + `key_from_request` + `url_gate_auth` + `route_ping` (کلید پاک در URLهای چاپی صفحات)؛ ③ /agent-prompt کلید نامعتبر + text → صفحه متنی **HTTP 200** (نمایش کلید دریافتی + قاعده نویسه‌ها + خودترمیم + راهنمای کامل با جای‌نگهدار)؛ ④ روش ناشناخته → **302 به `/url/run?type=<JOB>&wait=20`** برای کارهای صفر-آرگومان (sysinfo/ping/screenshot/process_list) و صفحه اشاره برای بقیه؛ json → hint
+- راهنما (کامل + کوتاه C): بخش The loop بازنویسی شد — «opened BY YOU»؛ paste-back فقط fallback دو شکست ابزار؛ بخش جدید «Copy-ready submit URL» (type=<JOB> / cmd=<JOB> + مثال کامل sysinfo)؛ قاعده «Normal flow: you open the submit URL yourself» در Rules هر دو متن؛ پیام شروع v2.8.0 داشبورد: flip به خود-باز کردن + مثال آماده sysinfo داخل پیام
+- درس محیطی: php در PATH نیست — باینری استاتیک `tools-bin/php/php` (8.2.28) برای php -l و تست‌ها؛ این جلسه Edit تکی جایگزین MultiEdit چندبخشی شد (ضربه nonce در admin-pages با grep گرفته و فوراً اصلاح شد)
+- تست‌ها: test_prompt_modes.php → **149/149** (۲۸ جدید: حلقه/قالب/مثال/قاعده ×۲ متن، حذف عبارت قدیمی، ۵ تست واحد normalize_mangled_key، ۱۰ تست سطوح منبع)؛ b64 20/20؛ php -l ×۶؛ py_compile؛ node --check؛ بلوک README بازتولید (18014)
+- نسخه‌ها → 2.8.0 در ۴ نقطه؛ docs: CHANGELOG/AGENT-API (سربرگ + 3.2 + 3.10)/README (پاراگراف + نقشه راه + ZIPها)/readme.txt/USER-GUIDE بخش ۱۶/project.md (وضعیت + ADR 31)/brainstorm #۱۵ + دو worklog
+- build_release دو ZIP 2.8.0 (پلاگین 82.0KB + ایجنت 24.3KB با SHA256) → commit + push → Release v2.8.0 → کپی به download/
+
+Stage Summary:
+- Release v2.8.0: https://github.com/Tobeseuss/ai-chatbot-link-to-pc/releases/tag/v2.8.0
+- نتیجه برای مالک: پیام شروع دیگر «&amp;» ندارد؛ حلقه کاملاً خودکار شد (مدل خودش URL را باز می‌کند — صفر پیست برای کارهای عادی)؛ کلیدهای خراب مدل‌ها خودکار ترمیم می‌شوند؛ URL اشتباه مدل (method=<job>) به نتیجه واقعی ختم می‌شود
+- گام مالک: نصب ZIP افزونه 2.8.0 + گفتگوی تازه + فقط پیام شروع جدید (روش C + کلید)؛ بعد از Ready فقط نام کار
+- قاعده اصل ۵ ادامه دارد
